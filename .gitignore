@@ -1,0 +1,22 @@
+# ===== colcon 构建产物（绝不入库）=====
+build/
+install/
+log/
+.ccache/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ===== IDE / 编辑器 =====
+.vscode/browse.vc.*
+.vscode/ipch/
+*.vc.db
+*.vc.db.lock
+
+# ===== CAD / SolidWorks 导出副产物 =====
+export.log
+
+# ===== 系统 =====
+.DS_Store

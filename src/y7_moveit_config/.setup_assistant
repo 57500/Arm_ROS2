@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: y7_arm_lite
+    relative_path: urdf/y7_arm_lite.urdf
+  srdf:
+    relative_path: config/y7_arm_lite.srdf
+  package_settings:
+    author_name: 57500
+    author_email: 3480087763@qq.com
+    generated_timestamp: 1788375290
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
