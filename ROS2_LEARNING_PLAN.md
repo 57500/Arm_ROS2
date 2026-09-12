@@ -414,6 +414,15 @@ bash: /home/a57500/ros2_study/install/setup.bash: 没有那个文件或目录
 | **影响** | 提交历史可回滚；`src/` 只剩 3 个包；**注意**：`ompl_planning.yaml` 现已完全不存在，若将来要自定义规划器需**新建**（见 §7 命令） |
 | **遗留** | P1~P11（见 §2.4） |
 
+### C2 — 2026-09-12｜git 工程化收尾（D0）
+| 项 | 内容 |
+| --- | --- |
+| **做了什么** | ① 新增 `README.md`（项目说明/目录结构/编译启动/数据流/验证命令/工程纪律/Git 约定/待办）；② 新增 `.gitattributes`（文本统一 LF；`*.STL` 等标记为 binary，避免二进制被当文本 diff）；③ 打标签 `v0.1-simulation-closed-loop` |
+| **为什么** | 建立"可回滚 + 可交接 + 有安全网"的基线；README 是新对话/新机器快速接管的第一入口 |
+| **怎么验证** | `colcon build --symlink-install` → 3 packages finished；`git status --short` → 干净；`git tag -n` → `v0.1-simulation-closed-loop`；`git ls-files \| wc -l` → 56 |
+| **影响** | 无功能变化；git 约定（`master` 常绿 + `feat/*` 实验 + 前缀式提交信息）从 D3 起执行 |
+| **遗留** | 远端仓库未配置（需要地址后一条命令即可：`git remote add origin <url> && git push -u origin master --tags`） |
+
 ### 变更记录模板（以后照着填）
 ```
 ### C<N> — YYYY-MM-DD｜标题（对应 D<N>）
