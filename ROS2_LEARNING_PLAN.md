@@ -403,6 +403,39 @@ bash: /home/a57500/ros2_study/install/setup.bash: 没有那个文件或目录
 
 ---
 
+### T10 ⚠️ 残留进程 + 同名话题 = 最难查的"幽灵 bug"（D3 实战踩坑）
+**现象**：新建的 `bringup.launch.py` 启动后，`ros2_control_node` 直接 abort：
+```
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  no 'ros2_control' tag found in the URDF
+```
+**真凶**：L2 小课的 `lesson02_params.launch.py` 留下一个**没关掉的 `robot_state_publisher` 进程**，它发布的是一个**假 URDF（不含 `<ros2_control>`）**，而 `transient_local` QoS 让这条消息一直挂在 `/robot_description` 上。`controller_manager` 订阅后拿到了假 URDF → 崩溃。**报错信息与真凶毫无关联。**
+**排查铁律（按顺序）**：
+```bash
+pgrep -af ros2                 # ① 先看有没有残留进程（最常见真凶）
+ros2 node list                 # ② 有没有意外的同名节点
+ros2 topic info /xxx --verbose # ③ 是不是有多个发布者抢同一个话题
+```
+**预防**：每次 `Ctrl-C` 后确认进程真的退出了；`ros2 launch` 用超时/后台跑时尤其要检查。
+**注**：这个坑曾让我误判成"路线①不可用"——**不要在环境不干净时下结论**。
+
+---
+
+### T11 ⚠️ `MoveItConfigsBuilder` 的"机器人名"和"包名"极易填反（D3 实战踩坑）
+**现象**：`ros2 launch ... --show-args` 输出一串 WARNING + 最后 Traceback：
+```
+WARNING:root:Cannot infer URDF from `.../install/y7_arm_lite/share/y7_arm_lite` -- using config/y7_arm_lite.urdf
+WARNING:root:"File .../config/y7_arm_lite.urdf doesn't exist"
+WARNING:root:The robot description will be loaded from /robot_description topic
+Traceback ...
+```
+**真凶**：`MoveItConfigsBuilder('y7_arm_lite', package_name='y7_arm_lite')` —— 第二个参数填成了机器人名（应为 `'y7_moveit_config'`）。
+**为什么难查**：`y7_arm_lite` **恰好是一个真实存在的包**（URDF 描述包 `src/y7_arm_lite`），所以**不报 `PackageNotFound`**，只是找不到 `config/*.urdf` → 一路降级 → 最后才崩。这类"不报错、结果全错"的最费时间。
+**口诀**：`y7_moveit_config/config/y7_arm_lite.urdf.xacro` → **包名 = 目录名；机器人名 = 文件名前半段**。
+**排查法**：读第一段 WARNING 里的**路径**——它已经告诉你"我跑哪个包去找了"。
+
+---
+
 ## 6. 变更日志（CHANGELOG）
 
 ### C1 — 2026-09-12｜D1 工程清理
@@ -422,6 +455,14 @@ bash: /home/a57500/ros2_study/install/setup.bash: 没有那个文件或目录
 | **怎么验证** | `colcon build --symlink-install` → 3 packages finished；`git status --short` → 干净；`git tag -n` → `v0.1-simulation-closed-loop`；`git ls-files \| wc -l` → 56 |
 | **影响** | 无功能变化；git 约定（`master` 常绿 + `feat/*` 实验 + 前缀式提交信息）从 D3 起执行 |
 | **遗留** | 远端仓库未配置（需要地址后一条命令即可：`git remote add origin <url> && git push -u origin master --tags`） |
+
+### C3 — 2026-09-13｜D3 ✅ 完成：y7_bringup 一键启动（launch 由**用户自己写**）
+| 项 | 内容 |
+| --- | --- |
+| **已完成** | ① 新建 `y7_bringup` 包骨架（`package.xml` / `CMakeLists.txt` 由用户自己改好、已核对无误）；② 确认 URDF 传递采用**路线②（话题传递，MoveIt 官方模板做法）**；③ 教学产物（`lesson01_minimal` / `lesson02_params` / `demo_params.yaml`）归档到 `archive/launch_lessons/`（不参与构建，仅作语法参考） |
+| **结果** | 用户独立填完 `launch/bringup.launch.py` 全部 9 个 TODO（声明接口 → 读 MoveIt 配置 → 取 URDF → 拼控制器 yaml 路径 → rsp → ros2_control_node → proxy → Include 三个现成 launch → 提交 LaunchDescription）。`ros2 launch y7_bringup` 全链路起通：两个控制器 active、proxy Action Server 就绪、move_group 可规划、RViz Plan & Execute 通过。**用户已能自己解释每段代码的作用** |
+| **教学法（第三次调整，最终版）** | 胶水/样板代码：给**可填空的骨架**（有结构、有提示、无答案），由用户自己写；**只在报错时才深挖**；不主动展开语法边界情况（如"少个符号会怎样"）。核心逻辑（算法/接口/数据流）仍全部由用户写 |
+| **副产品** | 新增陷阱记录 **§5 T10**（残留进程污染 `/robot_description`，导致 `ros2_control_node` abort）——这个坑是实战挖出来的，比语法细节值钱 |
 
 ### 变更记录模板（以后照着填）
 ```
