@@ -25,27 +25,27 @@ if(BUILD_TESTING)
 endif()
 
 install(PROGRAMS
-  scripts/joint_state_listener.py
+  src/joint_state_listener.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
-  scripts/trajectory_feedback_listener.py
+  src/trajectory_feedback_listener.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
-  scripts/trajectory_publisher.py
+  src/trajectory_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
-  scripts/trajectory_action_client.py
+  src/trajectory_action_client.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 install(PROGRAMS
-  scripts/trajectory_proxy.py
+  src/trajectory_proxy.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

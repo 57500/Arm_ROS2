@@ -61,8 +61,6 @@ class TrajectoryProxy(Node):
         self.get_logger().warn('收到取消请求')
 
         if ctx is not None and ctx.downstream_gh is not None:
-            # 日志写在转发【之前】：打日志要花几~十几毫秒，
-            # 放后面等于把"状态机还没进 CANCELING"的竞态窗口撑大。
             self.get_logger().warn('正在把取消转发给下游')
             ctx.downstream_gh.cancel_goal_async()
 
@@ -104,16 +102,14 @@ class TrajectoryProxy(Node):
             goal_handle.abort()
             return result
 
-        # 取消来得早：还没发给下游就有人要取消 → 直接收摊。
-        # 但别忘了"清账"：把档案删掉、把 active_id_ 清掉，
-        # 否则 ctx_ 里会残留脏数据，active_id_ 还一直指着这个已经结束的 goal。
+    
         if goal_handle.is_cancel_requested:
             with self.lock_:
                 if self.active_id_ == gid:
                     self.active_id_ = None
                 self.ctx_.pop(gid, None)
             result = FollowJointTrajectory.Result()
-            result.error_code = -1      # 明确写 -1；默认 0 会被误读成 SUCCESSFUL
+            result.error_code = -1     
             goal_handle.canceled()
             return result
 
@@ -165,7 +161,6 @@ class TrajectoryProxy(Node):
         )
 
     def on_result(self,future,goal_handle,ctx):
-        # 结果先记下来（即使这个 goal 已经是终态，也保留它最后的结果）
         ctx.result=future.result().result
 
         if not goal_handle.is_active: 
