@@ -22,10 +22,11 @@ class TrajectoryFeedbackListener(Node):
 
         self.last_print_time=now
 
+
+        self.get_logger().info(f"=== 轨迹执行反馈 ===")
         for name,reference,feedback,error in zip(msg.joint_names,msg.
             reference.positions,msg.feedback.positions,msg.error.positions):
 
-            self.get_logger().info(f"=== 轨迹执行反馈 ===")
             self.get_logger().info(f"关节: {name}")
             self.get_logger().info(f"期望位置: {reference}")
             self.get_logger().info(f"实际位置: {feedback}")
