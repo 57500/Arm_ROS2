@@ -49,9 +49,4 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
-install(PROGRAMS
-  scripts/d2_test_client.py
-  DESTINATION lib/${PROJECT_NAME}
-)
-
 ament_package()
