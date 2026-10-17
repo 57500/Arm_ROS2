@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="if_arm_lite">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import if_arm_lite urdf file -->
+    <xacro:include filename="$(find if_arm_lite)/urdf/if_arm_lite.urdf" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="if_arm_lite.ros2_control.xacro" />
+
+
+    <xacro:if_arm_lite_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>
