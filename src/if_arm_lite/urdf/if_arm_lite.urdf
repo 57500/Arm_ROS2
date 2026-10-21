@@ -97,10 +97,10 @@
     <axis
       xyz="0 0 1" />
     <limit
-      lower="-3.141592653589793"
-      upper="2.6179938779914944"
+      lower="-3.161592653589793"
+      upper="2.637993877991494"
       effort="100"
-      velocity="1" />
+      velocity="1.047197551196598" />
   </joint>
   <link
     name="link2">
@@ -155,10 +155,10 @@
     <axis
       xyz="1 0 0" />
     <limit
-      lower="-2.6179938779914944"
-      upper="0"
+      lower="-2.637993877991494"
+      upper="0.020000000000000"
       effort="100"
-      velocity="1" />
+      velocity="1.047197551196598" />
   </joint>
   <link
     name="link3">
@@ -213,10 +213,10 @@
     <axis
       xyz="1 0 0" />
     <limit
-      lower="0"
-      upper="3.141592653589793"
+      lower="-0.020000000000000"
+      upper="3.161592653589793"
       effort="100"
-      velocity="1" />
+      velocity="1.047197551196598" />
   </joint>
   <link
     name="link4">
@@ -271,10 +271,10 @@
     <axis
       xyz="1 0 0" />
     <limit
-      lower="-1.5707963267948966"
-      upper="1.3962634015954636"
+      lower="-1.590796326794897"
+      upper="1.416263401595464"
       effort="100"
-      velocity="1" />
+      velocity="1.047197551196598" />
   </joint>
   <link
     name="link5">
@@ -329,10 +329,10 @@
     <axis
       xyz="0 0.5 0.86603" />
     <limit
-      lower="-0.7853981633974483"
-      upper="0.7853981633974483"
+      lower="-0.805398163397448"
+      upper="0.805398163397448"
       effort="100"
-      velocity="1" />
+      velocity="1.047197551196598" />
   </joint>
   <link
     name="link6">
@@ -387,9 +387,9 @@
     <axis
       xyz="0 0.86603 -0.5" />
     <limit
-      lower="-3.14"
-      upper="3.14"
+      lower="-3.160000000000000"
+      upper="3.160000000000000"
       effort="100"
-      velocity="1" />
+      velocity="1.047197551196598" />
   </joint>
 </robot>

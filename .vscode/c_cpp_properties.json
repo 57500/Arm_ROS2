@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/a57500/workspace/openarm/57500/src/if_arm_hardware/include",
+        "/opt/ros/jazzy/include/**",
+        "/home/a57500/workspace/openarm/57500/src/arm_control_layer/include/**",
+        "/home/a57500/workspace/openarm/57500/src/if_arm_hardware/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ros2",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/g++",
+      "compileCommands": "${workspaceFolder}/build/if_arm_hardware/compile_commands.json",
+      "cStandard": "gnu11",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
+}

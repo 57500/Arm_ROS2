@@ -5,46 +5,53 @@
 
         <ros2_control name="${name}" type="system">
             <hardware>
-                <!-- By default, set up controllers for simulation. This won't work on real hardware -->
-                <plugin>mock_components/GenericSystem</plugin>
+                <plugin>if_arm_hardware/IfArmHardware</plugin>
+                <param name="can_interface">can0</param>
+                <param name="motor_ids">1,2,3,4,5,6</param>
+                <param name="gear_ratios">19,23,19,15,15,15</param>
+                <param name="directions">1,1,1,-1,1,1</param>
+                <param name="zero_offsets">0.0250,0.0002,-0.0126,0.0066,-0.1923,6.8574</param>
+                <param name="max_motor_rpm">1000</param>
+                <!-- 电机侧速度斜率，单位 RPM/s（电机轴），X 固件范围 1~65535；取上限 = 基本不额外限制加速度 -->
+                <param name="default_acc">65535</param>
             </hardware>
             <joint name="joint1">
-                <command_interface name="position"/>
+                <command_interface name="velocity"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['joint1']}</param>
                 </state_interface>
                 <state_interface name="velocity"/>
             </joint>
             <joint name="joint2">
-                <command_interface name="position"/>
+                <command_interface name="velocity"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['joint2']}</param>
                 </state_interface>
                 <state_interface name="velocity"/>
             </joint>
             <joint name="joint3">
-                <command_interface name="position"/>
+                <command_interface name="velocity"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['joint3']}</param>
                 </state_interface>
                 <state_interface name="velocity"/>
             </joint>
             <joint name="joint4">
-                <command_interface name="position"/>
+                <command_interface name="velocity"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['joint4']}</param>
                 </state_interface>
                 <state_interface name="velocity"/>
             </joint>
             <joint name="joint5">
-                <command_interface name="position"/>
+                <command_interface name="velocity"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['joint5']}</param>
                 </state_interface>
                 <state_interface name="velocity"/>
             </joint>
             <joint name="joint6">
-                <command_interface name="position"/>
+                <command_interface name="velocity"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['joint6']}</param>
                 </state_interface>

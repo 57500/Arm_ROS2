@@ -15,6 +15,9 @@ __pycache__/
 *.vc.db
 *.vc.db.lock
 
+# 编译数据库（由 colcon 生成，可随时重建，不入库）
+compile_commands.json
+
 # ===== CAD / SolidWorks 导出副产物 =====
 export.log
 

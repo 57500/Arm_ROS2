@@ -1,0 +1,7 @@
+<library path="if_arm_hardware">
+  <class name="if_arm_hardware/IfArmHardware"
+         type="if_arm_hardware::IfArmHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>ZDT CAN motor system interface for if_arm_lite</description>
+  </class>
+</library>

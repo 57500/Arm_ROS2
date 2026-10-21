@@ -2,6 +2,8 @@
 controller_manager:
   ros__parameters:
     update_rate: 100  # Hz
+    enforce_command_limits: true   # 按 URDF 的 <limit velocity> 裁剪控制器输出（10 deg/s）
+    enforce_command_limits: true
 
     manipulator_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -20,8 +22,15 @@ manipulator_controller:
       - joint5
       - joint6
     command_interfaces:
-      - position
+      - velocity
     state_interfaces:
       - position
       - velocity
+    gains:                   
+      joint1: {p: 1.0, i: 0.0, d: 0.0, ff_velocity_scale: 1.0}
+      joint2: {p: 1.0, i: 0.0, d: 0.0, ff_velocity_scale: 1.0}
+      joint3: {p: 1.0, i: 0.0, d: 0.0, ff_velocity_scale: 1.0}
+      joint4: {p: 1.0, i: 0.0, d: 0.0, ff_velocity_scale: 1.0}
+      joint5: {p: 1.0, i: 0.0, d: 0.0, ff_velocity_scale: 1.0}
+      joint6: {p: 1.0, i: 0.0, d: 0.0, ff_velocity_scale: 1.0}
     allow_nonzero_velocity_at_trajectory_end: true

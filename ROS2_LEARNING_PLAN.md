@@ -63,12 +63,15 @@ RViz/MoveIt 规划 → 中间控制层(整形/补偿) → ros2_control 硬件接
 
 ## 2. 资产盘点（D1 清理后）
 
-### 2.1 保留（`src/` 下只剩 3 个包）
+### 2.1 保留（`src/` 下 6 个包）
 | 包 | 内容 | 结论 |
 | --- | --- | --- |
-| `y7_arm_lite` | SolidWorks 导出的 URDF + meshes | ✅ 保留。**URDF 只有惯性，无阻尼/摩擦；且 base_link 带惯性**（见 §5 T3） |
-| `y7_moveit_config` | Assistant 生成的 MoveIt 配置 | ✅ 保留。6 个 Assistant 缺陷需每次重新生成后手修 |
-| `arm_control_layer` | 中间控制层（5 个 Python 脚本） | ✅ 保留，待 D2 健壮化 + D3 加 launch |
+| `y7_arm_lite` | SolidWorks 导出的 URDF + meshes（**7 轴练习臂**） | ✅ 保留。**URDF 只有惯性，无阻尼/摩擦；且 base_link 带惯性**（见 §5 T3） |
+| `y7_moveit_config` | Assistant 生成的 MoveIt 配置（7 轴） | ✅ 保留，作**参照物**。名单是 `trajectory_proxy`（配合 proxy），而 `spawn_controllers.launch.py` 是**手写硬编码版**（只 spawn jtc + jsb）→ 这就是"y7 的 demo 能起控制器、却没有 proxy 可连"的原因（§5 T12） |
+| `if_arm_lite` | **最终 6 轴臂**的 URDF 描述包（2026-10-17 从 SolidWorks 导入） | ✅ 保留。包名 / mesh 路径 / ROS1→ROS2 已修；运行时验收通过（§6 C4） |
+| `if_arm_lite_moveit_config` | Assistant 为 6 轴臂生成的 MoveIt 配置 | ✅ 保留。生成后已修 2 个缺陷（§5 T6、T12），`demo.launch.py` 规划 + 执行通过 |
+| `arm_control_layer` | 中间控制层（`trajectory_proxy` 等 5 个 Python 脚本） | ✅ 保留，proxy 的取消转发/抢占已健壮化（D2） |
+| `y7_bringup` | 一键 bringup（D3，用户自己写） | ✅ 保留。include 手写 spawn（jtc + jsb）+ 自带 `trajectory_proxy` 节点 → `MoveIt → proxy → JTC` 全链可用 |
 
 ### 2.2 已归档到 `57500/archive/`（不再参与构建）
 | 文件 | 归档理由 |
@@ -156,6 +159,68 @@ RViz/MoveIt 规划 → 中间控制层(整形/补偿) → ros2_control 硬件接
 
 **结论**：你原来"PC 低频前馈 + MCU 1kHz 插值闭环"的规划是**合理的**。openarm 的做法是让 PC 直接以 750Hz 跑控制回路（`openarm_bimanual_controllers.yaml` 里 `update_rate: 750`）。**这个架构选择要在 D6 之前定下来**（见 §8 Q1/Q2）。
 
+### 3.3 `trajectory_proxy` 接线手册（谁连谁 / 启动顺序 / 验证）
+
+```
+MoveIt (move_group)
+   │  action: /trajectory_proxy/follow_joint_trajectory
+   ▼
+trajectory_proxy        （Python 节点，arm_control_layer；只做转发/取消/抢占）
+   │  action: /manipulator_controller/follow_joint_trajectory
+   ▼
+manipulator_controller  （JTC 插件，跑在 ros2_control_node 的 RT 线程里）
+   │  state/command 接口（内存"格子"）
+   ▼
+硬件插件（将来是你的 CAN SystemInterface）
+```
+
+**三份配置各管一段，不能混：**
+
+| 管什么 | 文件 | 该写什么 |
+| --- | --- | --- |
+| ① controller_manager 要**加载哪个插件** | `ros2_controllers.yaml` | `manipulator_controller: type: joint_trajectory_controller/JointTrajectoryController` |
+| ② MoveIt 要**连哪个 action server** | `moveit_controllers.yaml` | `controller_names: [trajectory_proxy]` + 同名块（`type/action_ns/joints/default`） |
+| ③ 谁来**spawn ①** | 自己的 bringup launch | 显式两个 spawner：`joint_state_broadcaster`、`manipulator_controller` |
+
+**启动顺序（顺序错不崩，但前 10 秒的 goal 会被拒）：**
+1. `ros2_control_node`（参数：`ros2_controllers.yaml`）
+2. `spawner joint_state_broadcaster`、`spawner manipulator_controller` → JTC 变 `active`
+3. `trajectory_proxy` 节点（它的 ActionClient 要连上 JTC；`wait_for_server(timeout_sec=10.0)` 失败会直接 `abort` 该目标）
+4. `move_group`（它的 ActionClient 连 proxy）
+5. RViz
+
+**bringup 里的关键片段（不要 include Assistant 生成的 `spawn_controllers.launch.py`）：**
+
+```python
+from launch_ros.actions import Node
+
+spawn_jsb = Node(package='controller_manager', executable='spawner',
+                 arguments=['joint_state_broadcaster'], output='screen')
+spawn_jtc = Node(package='controller_manager', executable='spawner',
+                 arguments=['manipulator_controller'], output='screen')
+
+proxy_node = Node(package='arm_control_layer', executable='trajectory_proxy.py',
+                  name='trajectory_proxy', output='screen',
+                  condition=IfCondition(use_proxy))
+```
+
+**验收四连：**
+
+```bash
+ros2 control list_controllers                                        # manipulator_controller 应为 active
+ros2 action info /manipulator_controller/follow_joint_trajectory -t  # Server count = 1
+ros2 action info /trajectory_proxy/follow_joint_trajectory -t        # Server = 1，Client = 1（move_group）
+ros2 node list | grep -E 'trajectory_proxy|move_group'
+```
+
+**注意：proxy 里的两个名字是硬编码的**（`trajectory_proxy.py` 第 39 行 server、第 48 行 client）。
+改名必须**三处同步**：proxy 代码 ／ `moveit_controllers.yaml` ／ `ros2_controllers.yaml`。
+
+**接入 CAN 后 proxy 的真正价值**（目前它只做"转发 + 取消 + 抢占"）：
+- 在 `execute_callback` 里做**轨迹前处理**：限速/限加速度、关节软限位裁剪、与当前状态拼接起点；
+- 把 MoveIt 的"理想轨迹"翻译成你 CAN 层能接受的**分包序列**（ADR-4/ADR-5 的帧预算）；
+- 将来做阻抗/力控时，proxy 是"位置轨迹 ↔ 力矩前馈"模式切换的天然场所。
+
 ---
 
 ## 4. 阶段计划
@@ -177,7 +242,7 @@ source /opt/ros/jazzy/setup.bash && colcon build --symlink-install
 
 ---
 
-### D2 ⬜ `trajectory_proxy` 健壮化 + URDF 小修
+### D2 ✅ `trajectory_proxy` 健壮化 + URDF 小修（已完成，2026-09-13）
 **目标**：让中间层在"取消 / 抢占 / 忙等"三种情况下行为正确。
 **知识点**
 - Action 完整状态机：`ACCEPTED → EXECUTING → (CANCELING) → SUCCEEDED/ABORTED/CANCELED`，及 `goal_handle.canceled()` 等 API。
@@ -204,7 +269,7 @@ ros2 topic hz /manipulator_controller/controller_state
 
 ---
 
-### D3 ⬜ launch 与 bringup 工程化
+### D3 ✅ launch 与 bringup 工程化（已完成，2026-09-13）
 **目标**：一条命令起全链路，消灭"必须记得先开 proxy"的隐性依赖。
 **知识点**
 - launch 三件套：`DeclareLaunchArgument` / `Node(parameters=[...])` / `IncludeLaunchDescription`。
@@ -378,8 +443,21 @@ As a workaround, you can add an extra dummy link to your URDF.
 它来自 3D 感知/八叉树模块，而你没有 3D 传感器。**证据**：这条 ERROR 之后 move_group 依然打印了 `You can start planning now!`，控制器也全部激活。
 **要学的判断力**：日志级别 ≠ 后果严重性。判断标准是"该模块的功能我是否需要"。
 
-### T6 ℹ️ MoveIt Setup Assistant 的 6 个已知缺陷
-见 `PROJECT_STATUS.md` §7，每次重新生成配置包后必须手修（joint_limits 整数、缺 ompl_planning、无效 sensors_3d、joints 为空、缺 robot_description 传递、缺 action_ns）。
+### T6 ⚠️ MoveIt Setup Assistant 的生成缺陷（Jazzy 实测版，2026-10-17 更新）
+
+> 原记录指向已删除的 `PROJECT_STATUS.md` §7；以下是**在 Jazzy 上重新实测**后的版本，每次重新生成配置包后照此核对。
+
+| # | 缺陷 | 现象 | 修法 |
+| --- | --- | --- | --- |
+| **1** | `joint_limits.yaml` 里 `max_velocity` / `max_acceleration` 被写成**整数** | RViz 报 `parameter 'robot_description_planning.joint_limits.joint1.max_velocity' has invalid type: is of type {double}, setting it to {integer} is not allowed` → `loadRobotModel` 失败 → **同时表现为"看不到模型" + "Planning Group 下拉框为空"**（因为 `moveit.rviz` 里没有独立 RobotModel 显示，模型是 MotionPlanning 插件自己画的） | 全部改成浮点：`1.0` / `0.0`；建议同时把 `has_acceleration_limits` 设为 `true`、`max_acceleration: 1.0`（Assistant 默认给 `false`/`0`，0 加速度会让时间参数化出问题） |
+| **2** | `moveit_controllers.yaml` 的 `controller_names` 与**控制器块名**不一致 | move_group 报 `Returned 0 controllers in list` + `Known controllers and their joints:` 后面**空白** → 规划成功但 `CONTROL_FAILED` | 两处用**完全相同的名字**（见 §5 T12） |
+| **3** | ~~缺 `ompl_planning.yaml`~~ | **Jazzy 已不需要**：包内没有 `*_planning.yaml` 时，`MoveItConfigsBuilder.planning_pipelines(load_all=True)` 会自动从 `/opt/ros/jazzy/share/moveit_configs_utils/default_configs/` 载入 `ompl / chomp / pilz / stomp` | 不用手建 |
+| **4** | ~~无效 `sensors_3d.yaml`~~ | **Jazzy 已不需要**：`sensors_3d()` 内部是 `if sensors_path.exists():`，没有就跳过 | 不用手建 |
+| **5** | 生成的 xacro 用 `mock_components/GenericSystem` 假硬件 | 真机前必须替换为自己的 `SystemInterface` 插件（或改为 bringup 里自带 `<ros2_control>`） | 接 CAN 时处理 |
+| **6** | `.setup_assistant` 里的 `package` / `relative_path` | 若 mesh 用 `package://` 绝对路径，Assistant 能正确推断包名；**推断错就不能"Edit Existing"** | 生成后核对 `urdf: package: <正确包名>` |
+
+**为什么缺陷 1 会反复出现**：Assistant 是**把 URDF 里的字符串原样抄进 yaml**。SolidWorks 导出的 `<limit velocity="1" />` 没有小数点 → yaml 里就是整数 `1`。ROS2 参数类型严格（double 不能用 int 覆盖），所以必错。
+
 
 ### T7 ⚠️ 占位参数（真机前必须替换）
 | 参数 | 当前值 | 问题 |
@@ -436,6 +514,85 @@ Traceback ...
 
 ---
 
+### T12 ⚠️ `moveit_controllers.yaml` 被**两个读者**解读，含义完全不同（2026-10-17 实战挖出）
+
+**现象**：规划成功（`time taken to generate plan: 0.0156 seconds`），但 Execute 立刻失败：
+
+```
+[INFO ] [simple_controller_manager]: Returned 0 controllers in list
+[ERROR] [trajectory_execution_manager]: Unable to identify any set of controllers that can actuate the specified joints: [joint1..joint6]
+[ERROR] [trajectory_execution_manager]: Known controllers and their joints:
+[INFO ] [move_action]: CONTROL_FAILED
+```
+
+**根因**：`moveit_simple_controller_manager.controller_names` 这一份名单被两拨人读，各自以为那是不同的东西：
+
+| 读者 | 它以为名单是 | 名字的合法性要求 | `trajectory_proxy` 行不行 |
+| --- | --- | --- | --- |
+| `move_group`（`MoveItSimpleControllerManager` 插件） | **action server 的名字** | 任意名字，只要 `/名字/follow_joint_trajectory` 存在 | ✅ 合法（proxy 自己就是 action server） |
+| `spawn_controllers.launch.py`（`controller_manager/spawner`） | **ros2_control 控制器插件名** | 必须是 `ros2_controllers.yaml` 里用 `type:` 注册过的插件 | ❌ 必然失败（Python 节点不是插件） |
+
+> 源码依据：`moveit_configs_utils/launches.py` 的 `generate_spawn_controllers_launch()` ——
+> `controller_names = moveit_config.trajectory_execution["moveit_simple_controller_manager"]["controller_names"]`，
+> 然后 `for c in controller_names + ["joint_state_broadcaster"]: spawner(c)`。
+
+**还有个更隐蔽的变体：名单与块名不一致**
+
+```yaml
+moveit_simple_controller_manager:
+  controller_names:
+    - manipulator_controller     # ← 名单
+  trajectory_proxy:              # ← 块名没跟着改 → 该名字查不到参数 → 0 controllers
+```
+
+**诊断口诀（一句话分流）**：执行失败时看 `Known controllers and their joints:` 后面
+
+| 后面内容 | 含义 | 去查 |
+| --- | --- | --- |
+| **空白** | MoveIt 内部一个控制器都没加载（名单↔块名不一致 / 结构错） | `moveit_controllers.yaml` |
+| 列出了 `xxx (joint1..jointN)` 但仍失败 | 名字对了，是 action server 不在线 | `ros2 action list \| grep follow`、`ros2 control list_controllers` |
+
+**两种正确写法（按场景选）**：
+
+```yaml
+# A. MoveIt 直连 JTC（demo 阶段，Assistant 默认）
+controller_names: [manipulator_controller]
+
+# B. 中间层 proxy 在生产链路里（最终架构，见 §3.3）
+controller_names: [trajectory_proxy]
+```
+
+B 场景下**绝不能用 Assistant 生成的 `spawn_controllers.launch.py`**（它会把 `trajectory_proxy` 当插件去 load），
+必须自己显式 spawn `joint_state_broadcaster` + `manipulator_controller`，再单独起 proxy 节点。
+
+**30 秒自检（不需要启动任何东西）**：
+
+```bash
+python3 -c "from moveit_configs_utils import MoveItConfigsBuilder as B; \
+c=B('if_arm_lite', package_name='if_arm_lite_moveit_config').trajectory_execution().to_moveit_configs(); \
+print(c.trajectory_execution['moveit_simple_controller_manager'])"
+# 期望：名单里的每个名字，在同一个 dict 里都有一个同名子 dict（含 type/joints/action_ns）
+```
+
+**本项目的历史证据（2026-10-17 复盘）**：
+- `~/.ros/log` 里有 **8 次** `[FATAL] spawner_trajectory_proxy: Failed loading controller trajectory_proxy`，全部发生在 **2026-09-11 15:58 之前**。那时 `y7_moveit_config/launch/spawn_controllers.launch.py` 还是 **Assistant 生成的版本**（从 `moveit_controllers.yaml` 的名单反推要 spawn 谁）。
+- **2026-09-11 15:58 同一分钟**，作者做了两件事：① 把 `moveit_controllers.yaml` 的名单改成 `trajectory_proxy`（给 move_group 用）；② 把 `spawn_controllers.launch.py` **手改成硬编码列表** `["manipulator_controller", "joint_state_broadcaster"]`（不再读 yaml）。→ **spawn 从此再没出错**。
+- 这个"手写硬编码 spawn"正是 §3.3 推荐做法的原型：**"MoveIt 要连谁" 与 "ros2_control 要加载谁" 分开写**。
+
+**推论：同一份 `moveit_controllers.yaml` 不可能同时让 demo 和 bringup 都成功**
+| 启动方式 | 有没有 proxy 节点 | 名单该写谁 | 结果 |
+| --- | --- | --- | --- |
+| `xxx_moveit_config/demo.launch.py` | ❌ 没有（只起 rsp / move_group / rviz / ros2_control + spawner） | 必须是 `manipulator_controller` | 写 proxy 则 Execute 报 `Action client not connected to action server: trajectory_proxy/follow_joint_trajectory` |
+| 自己的 bringup（起了 proxy） | ✅ 有 | `trajectory_proxy`（并显式 spawn jtc） | 链路 `MoveIt → proxy → JTC` 通 |
+
+三种解法：
+1. **demo 阶段**：名单写 `manipulator_controller`（最简单，当前 `if_arm_lite_moveit_config` 就是这种）；
+2. **bringup 阶段**：名单写 `trajectory_proxy` + 手写 spawn（照 y7 的做法）；
+3. **两份文件并存（推荐长期）**：`moveit_controllers.yaml`（直连）与 `moveit_controllers_proxy.yaml`（走 proxy），用 `MoveItConfigsBuilder(...).trajectory_execution(file_path='config/moveit_controllers_proxy.yaml')` 在 bringup 里选后者。
+
+
+---
+
 ## 6. 变更日志（CHANGELOG）
 
 ### C1 — 2026-09-12｜D1 工程清理
@@ -463,6 +620,16 @@ Traceback ...
 | **结果** | 用户独立填完 `launch/bringup.launch.py` 全部 9 个 TODO（声明接口 → 读 MoveIt 配置 → 取 URDF → 拼控制器 yaml 路径 → rsp → ros2_control_node → proxy → Include 三个现成 launch → 提交 LaunchDescription）。`ros2 launch y7_bringup` 全链路起通：两个控制器 active、proxy Action Server 就绪、move_group 可规划、RViz Plan & Execute 通过。**用户已能自己解释每段代码的作用** |
 | **教学法（第三次调整，最终版）** | 胶水/样板代码：给**可填空的骨架**（有结构、有提示、无答案），由用户自己写；**只在报错时才深挖**；不主动展开语法边界情况（如"少个符号会怎样"）。核心逻辑（算法/接口/数据流）仍全部由用户写 |
 | **副产品** | 新增陷阱记录 **§5 T10**（残留进程污染 `/robot_description`，导致 `ros2_control_node` abort）——这个坑是实战挖出来的，比语法细节值钱 |
+
+### C4 — 2026-10-17｜`if_arm_lite` 导入 + MoveIt 配置生成（Assistant 两缺陷实战复现）
+| 项 | 内容 |
+| --- | --- |
+| **做了什么** | ① 从 SolidWorks 导入 **6 轴最终臂** `if_arm_lite`：包名/`package://` mesh 路径/ROS1→ROS2 全部改好（joint6 ±180° 为刻意设定，非笔误）；② 运行时验收：RSP 解析 OK、`/joint_states` 有 6 个关节、TF 链 `base_link→link1→…→link6`、零位 FK `[0.000, 0.088, 0.240]`（与 6 个 joint origin 的 y/z 手算累加 0.088043 / 0.239862 完全吻合）；③ 用 Setup Assistant 生成 `if_arm_lite_moveit_config`（输出到 `src/`，路径=包目录）；④ 修两个缺陷后 `demo.launch.py` **规划 + 执行全通** |
+| **为什么** | y7 是 7 轴练习臂，最终机械臂是 6 轴；同时把"URDF → MoveIt → 控制器"整条配置链在 6 轴上完整走一遍，为接 CAN 做准备 |
+| **怎么验证** | `colcon build --packages-select if_arm_lite if_arm_lite_moveit_config`；`ros2 launch if_arm_lite_moveit_config demo.launch.py` → 模型可见、Planning Group = `manipulator`、Plan + Execute 成功；`ros2 control list_controllers` → `manipulator_controller`/`joint_state_broadcaster` 均 active |
+| **踩的坑（两条，均已写入 §5）** | **T6-1**：`joint_limits.yaml` 的 `max_velocity: 1` 是**整数**（Assistant 把 URDF `velocity="1"` 原样抄）→ RViz `loadRobotModel` 抛 `invalid type {double} ← {integer}` → **同时导致"看不到模型"和"Planning Group 下拉框为空"**（`moveit.rviz` 里没有独立 RobotModel，模型由 MotionPlanning 插件绘制）。**T12**：`controller_names` 改成 `manipulator_controller` 但**块名仍是 `trajectory_proxy`** → `Returned 0 controllers in list` → 规划成功、`CONTROL_FAILED` |
+| **影响** | 任何新生成的 MoveIt 配置包，**必须**核对此 2 处。`y7_moveit_config` 是"名单写 proxy + 手写 spawn"的**可用形态**；`if_arm_lite_moveit_config` 目前是"名单写 jtc"的 **demo 形态**。两种形态不能混用（§5 T12） |
+| **遗留** | ① `y7_bringup` 的 spawn 环节改为显式 spawn（§3.3）；② `ros2_controllers.yaml` 仍为 `command_interfaces: [position]`，接 CAN 速度模式时换 `velocity` 并加 `gains`；③ `if_arm_lite_moveit_config` 的 `moveit_controllers.yaml` 在接 proxy 时要改回 `trajectory_proxy` |
 
 ### 变更记录模板（以后照着填）
 ```
