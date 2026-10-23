@@ -7,12 +7,14 @@
 #
 # Ctrl+C 会同时停掉两个 launch。
 
-set -u
+# 注意：不能用 set -u —— ROS 的 setup.bash 会引用未定义的 AMENT_TRACE_SETUP_FILES
+set +u
 
 WS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NO_RVIZ=0
 [ "${1:-}" = "--no-rviz" ] && NO_RVIZ=1
 
+set +u
 source /opt/ros/jazzy/setup.bash
 if [ -f "${WS_DIR}/install/setup.bash" ]; then
   source "${WS_DIR}/install/setup.bash"
@@ -27,8 +29,8 @@ WEB_PID=""
 cleanup() {
   echo ""
   echo "正在停止…"
-  [ -n "${WEB_PID}" ] && kill -INT "${WEB_PID}" 2>/dev/null || true
-  [ -n "${DEMO_PID}" ] && kill -INT "${DEMO_PID}" 2>/dev/null || true
+  if [ -n "${WEB_PID}" ]; then kill -INT "${WEB_PID}" 2>/dev/null; fi
+  if [ -n "${DEMO_PID}" ]; then kill -INT "${DEMO_PID}" 2>/dev/null; fi
   wait 2>/dev/null || true
   exit 0
 }
