@@ -29,6 +29,9 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
+const R2D = 180 / Math.PI;
+const toDeg = (arr) => (Array.isArray(arr) ? arr.map((v) => v * R2D) : []);
+
 function showFatal(text) {
   const box = el('fatal');
   if (box) {
@@ -161,12 +164,13 @@ function handleMessage(msg) {
         if (plot && now - lastPlotAt > 50) {
           lastPlotAt = now;
           plot.push(msg.t || Date.now() / 1000, {
-            pos: state.q,
-            vel: state.dq,
-            ref: state.ref,
-            ref_vel: state.refVel,
-            err: state.err,
-            err_vel: state.errVel,
+            // 桥接发的是弧度，波形统一按度显示，和表格/坐标轴单位一致
+            pos: toDeg(state.q),
+            vel: toDeg(state.dq),
+            ref: toDeg(state.ref),
+            ref_vel: toDeg(state.refVel),
+            err: toDeg(state.err),
+            err_vel: toDeg(state.errVel),
           });
         }
       }

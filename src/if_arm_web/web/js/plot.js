@@ -8,9 +8,9 @@ export const COLORS = ['#4da3ff', '#3fb950', '#d29922', '#f85149', '#a371f7', '#
 const JOINT_HUE = [205, 145, 45, 352, 275, 182];
 
 function colorFor(signalIndex, jointIndex) {
-  const hue = (JOINT_HUE[jointIndex % JOINT_HUE.length] + (signalIndex - 2) * 13 + 360) % 360;
-  const sat = 62 + (signalIndex % 3) * 12;
-  const light = 44 + signalIndex * 6;
+  const hue = (JOINT_HUE[jointIndex % JOINT_HUE.length] + (signalIndex - 2) * 26 + 360) % 360;
+  const sat = 70 + (signalIndex % 3) * 10;
+  const light = 45 + signalIndex * 5.5;
   return `hsl(${hue}, ${sat}%, ${light}%)`;
 }
 
@@ -60,6 +60,8 @@ export class JointPlot {
           label: `${name} ${sig.label}`,
           stroke: colorFor(si, i),
           width: sig.width,
+          // 位置类(°)走左轴，速度类(°/s)走右轴，量级差 10 倍也不会互相压扁
+          scale: sig.unit === '°/s' ? 'y2' : 'y',
           points: { show: false },
         });
       });
@@ -68,18 +70,32 @@ export class JointPlot {
   }
 
   options() {
+    const series = this.seriesList();
+    const used = new Set(series.map((s) => s.scale));
+    const axes = [
+      { stroke: '#8b98a9', grid: { stroke: '#2b323c' }, ticks: { stroke: '#2b323c' } },
+    ];
+    if (used.has('y')) {
+      axes.push({
+        scale: 'y', side: 3, size: 64, label: '位置 (°)', labelSize: 18,
+        stroke: '#8b98a9', grid: { stroke: '#2b323c' }, ticks: { stroke: '#2b323c' },
+      });
+    }
+    if (used.has('y2')) {
+      axes.push({
+        scale: 'y2', side: 1, size: 64, label: '速度 (°/s)', labelSize: 18,
+        stroke: '#7d8b9e', grid: { show: false }, ticks: { stroke: '#2b323c' },
+      });
+    }
     return {
       width: this.el.clientWidth || 600,
       height: this.el.clientHeight || 160,
       padding: [6, 10, 0, 0],
       cursor: { drag: { x: false, y: false } },
-      scales: { x: { time: true }, y: { auto: true } },
+      scales: { x: { time: true }, y: {}, y2: {} },
       legend: { show: false },
-      axes: [
-        { stroke: '#8b98a9', grid: { stroke: '#2b323c' }, ticks: { stroke: '#2b323c' } },
-        { stroke: '#8b98a9', grid: { stroke: '#2b323c' }, ticks: { stroke: '#2b323c' }, size: 52 },
-      ],
-      series: [{ label: '时间' }].concat(this.seriesList()),
+      axes,
+      series: [{ label: '时间' }].concat(series),
     };
   }
 
@@ -94,8 +110,15 @@ export class JointPlot {
   rebuild() {
     if (this.uplot) this.uplot.destroy();
     this.uplot = new uPlot(this.options(), this.buildData(), this.el);
-    if (this.yManual) this.uplot.setScale('y', this.yManual);
+    this.applyYManual();
     if (!this.userPanned) this.applyXWindow();
+  }
+
+  applyYManual() {
+    if (!this.uplot || !this.yManual) return;
+    Object.keys(this.yManual).forEach((key) => {
+      this.uplot.setScale(key, this.yManual[key]);
+    });
   }
 
   /** 滚动时间窗：显示最近 WINDOW_SEC 秒，用户平移后暂停跟随 */
@@ -135,7 +158,7 @@ export class JointPlot {
     if (this.uplot) {
       this.uplot.setData(this.buildData());
       if (!this.userPanned) this.applyXWindow();
-      if (this.yManual) this.uplot.setScale('y', this.yManual);
+      this.applyYManual();
     }
   }
 
@@ -158,6 +181,7 @@ export class JointPlot {
     this.yManual = null;
     if (this.uplot) {
       this.uplot.setScale('y', { auto: true });
+      this.uplot.setScale('y2', { auto: true });
       this.uplot.setData(this.buildData());
     }
     this.resetX();
@@ -165,13 +189,17 @@ export class JointPlot {
 
   zoomY(factor) {
     if (!this.uplot) return;
-    const range = this.uplot.scales.y || {};
-    const min = range.min ?? -180;
-    const max = range.max ?? 180;
-    const center = (min + max) / 2;
-    const half = Math.max(0.02, ((max - min) / 2) * factor);
-    this.yManual = { min: center - half, max: center + half };
-    this.uplot.setScale('y', this.yManual);
+    const manual = {};
+    ['y', 'y2'].forEach((key) => {
+      const range = this.uplot.scales[key];
+      if (!range || !Number.isFinite(range.min) || !Number.isFinite(range.max)) return;
+      const center = (range.min + range.max) / 2;
+      const half = Math.max(1e-3, ((range.max - range.min) / 2) * factor);
+      manual[key] = { min: center - half, max: center + half };
+    });
+    if (!Object.keys(manual).length) return;
+    this.yManual = manual;
+    this.applyYManual();
   }
 
   // ---- 悬停提示 ----
@@ -206,7 +234,7 @@ export class JointPlot {
     this.seriesList().forEach((s) => {
       const value = this.history[s.signal][s.joint][idx];
       if (value == null || !Number.isFinite(value)) return;
-      const py = this.uplot.valToPos(value, 'y');
+      const py = this.uplot.valToPos(value, s.scale);
       const dist = Math.abs(py - y);
       if (dist < 22 && (!best || dist < best.dist)) {
         best = { dist, label: s.label, value, unit: s.unit, stroke: s.stroke };
