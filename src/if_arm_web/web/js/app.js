@@ -12,11 +12,16 @@ const state = {
   connected: false,
   jointNames: [],
   q: [],
+  dq: [],
+  ref: [],
+  err: [],
   urdfLoaded: false,
   previewQ: null,
   ikSeq: 0,
   lastIkApplied: 0,
   executing: false,
+  meshPackage: 'if_arm_lite',
+  avoidCollisions: true,
 };
 
 const el = (id) => document.getElementById(id);
@@ -44,21 +49,20 @@ function setHint(text) {
 window.addEventListener('error', (e) => showFatal('JS 错误: ' + e.message));
 window.addEventListener('unhandledrejection', (e) => showFatal('Promise 异常: ' + e.reason));
 
-// 3D 初始化失败时用空对象兜底，保证状态/波形/按钮仍然可用
 let view;
 try {
-  view = new RobotView(el('viewport'), { tipLink: 'link6', jointNames: [] });
+  view = new RobotView(el('viewport'), { tipLink: 'link6' });
 } catch (err) {
   showFatal('初始化 3D 视图失败: ' + err.message);
   view = {
     jointNames: [],
     setJoints() {},
+    setTargetJoints() {},
     setMode() {},
     snapToEE() {},
+    resetView() {},
     loadURDF() {},
-    getTargetPose() {
-      return { pos: [0, 0, 0], quat: [0, 0, 0, 1] };
-    },
+    getTargetPose() { return { pos: [0, 0, 0], quat: [0, 0, 0, 1] }; },
   };
 }
 let plot = null;
@@ -82,7 +86,7 @@ async function connect() {
     state.connected = true;
     setConn(true);
     setHint('已连接，等待模型…');
-    log('info', 'WebSocket 已连接');
+    send({ type: 'set_ik', avoid_collisions: state.avoidCollisions });
   };
   ws.onclose = () => {
     state.connected = false;
@@ -109,17 +113,12 @@ function handleMessage(msg) {
     case 'hello':
       state.jointNames = msg.joint_names || [];
       view.jointNames = state.jointNames;
-      if (msg.tip_link) {
-        view.tipLink = msg.tip_link;
-      }
+      if (msg.tip_link) view.tipLink = msg.tip_link;
       state.meshPackage = msg.mesh_package || 'if_arm_lite';
       state.q = msg.q || state.jointNames.map(() => 0);
       initTables();
-      if (msg.urdf) {
-        loadURDF(msg.urdf);
-      } else {
-        setHint('已连接，等待 URDF…');
-      }
+      if (msg.urdf) loadURDF(msg.urdf);
+      else setHint('已连接，等待 URDF…');
       break;
 
     case 'urdf':
@@ -128,21 +127,26 @@ function handleMessage(msg) {
 
     case 'state':
       state.q = msg.q || state.q;
+      state.dq = msg.dq || state.dq;
+      state.ref = msg.ref || state.ref;
+      state.err = msg.err || state.err;
       if (!state.previewQ) {
         view.setTargetJoints(state.q);
         syncSliders(state.q);
       }
-
-      // 表格 10 Hz、波形 20 Hz，避免 100 Hz 数据把界面拖慢
-      const now = performance.now();
-      if (now - lastTableAt > 100) {
-        lastTableAt = now;
-        updateJointTable(state.q, msg.dq);
-        updateLegend(state.q);
-      }
-      if (plot && now - lastPlotAt > 50) {
-        lastPlotAt = now;
-        plot.push(msg.t || Date.now() / 1000, state.q);
+      {
+        const now = performance.now();
+        if (now - lastTableAt > 100) {
+          lastTableAt = now;
+          updateJointTable(state.q, state.dq);
+          updateLegend(state.q);
+        }
+        if (plot && now - lastPlotAt > 50) {
+          lastPlotAt = now;
+          plot.push(msg.t || Date.now() / 1000, {
+            pos: state.q, vel: state.dq, ref: state.ref, err: state.err,
+          });
+        }
       }
       break;
 
@@ -151,9 +155,7 @@ function handleMessage(msg) {
       break;
 
     case 'ik':
-      if (msg.seq < state.lastIkApplied) {
-        return; // 旧请求的结果，丢掉
-      }
+      if (msg.seq < state.lastIkApplied) return;
       state.lastIkApplied = msg.seq;
       if (msg.ok) {
         state.previewQ = msg.q;
@@ -182,6 +184,15 @@ function handleMessage(msg) {
       state.previewQ = null;
       break;
 
+    case 'motor_config':
+      renderMotorConfig(msg);
+      break;
+
+    case 'motor_result':
+      log(msg.ok ? 'info' : 'error', `电机 ${msg.id} ${msg.action}：${msg.detail}`);
+      if (msg.ok && msg.action !== 'read') el('dbgRead').click();
+      break;
+
     case 'log':
       log(msg.level || 'info', msg.msg);
       break;
@@ -199,13 +210,11 @@ function setConn(ok) {
 }
 
 function loadURDF(xml) {
-  if (state.urdfLoaded || !xml) {
-    return;
-  }
+  if (state.urdfLoaded || !xml) return;
   state.urdfLoaded = true;
   log('info', `收到 URDF（${xml.length} 字节），开始加载网格`);
   try {
-    view.loadURDF(xml, state.meshPackage || 'if_arm_lite');
+    view.loadURDF(xml, state.meshPackage);
     view.onGizmoChange = scheduleIK;
     view.setJoints(state.q);
     applyJointLimits(xml);
@@ -224,7 +233,10 @@ function initTables() {
     tr.innerHTML = `<td>${name}</td><td class="pos">0.0</td><td class="vel">0.0</td>`;
     tbody.appendChild(tr);
   });
+
   buildSliders();
+  buildJointToggles();
+
   if (!plot) {
     try {
       plot = new JointPlot(el('plot'), state.jointNames);
@@ -250,17 +262,30 @@ function renderStatus(msg) {
     .join('');
 }
 
-// ---------- 关节滑块 ----------
+function log(level, text) {
+  const box = el('log');
+  if (!box) return;
+  const line = document.createElement('div');
+  line.className = level;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+  while (box.childElementCount > 300) box.removeChild(box.firstChild);
+}
+
+// ---------------- 关节滑块 ----------------
 let sliderInputs = [];
 
 function buildSliders() {
   const box = el('jointSliders');
+  if (!box) return;
   box.innerHTML = '';
   sliderInputs = [];
 
   state.jointNames.forEach((name, i) => {
     const row = document.createElement('div');
     row.className = 'slider-row';
+
     const label = document.createElement('span');
     label.className = 'name';
     label.textContent = name;
@@ -324,27 +349,48 @@ function applyJointLimits(xml) {
   }
 }
 
-// ---------- 波形图例（带当前值） ----------
-let legendStamp = 0;
-function updateLegend(q) {
-  const now = performance.now();
-  if (now - legendStamp < 100) {
-    return;  // 10 Hz 足够
-  }
-  legendStamp = now;
-  const box = el('plotLegend');
+// ---------------- 波形：关节选择 + 当前值 ----------------
+function buildJointToggles() {
+  const box = el('jointToggles');
   if (!box) return;
   const colors = plot ? plot.colors() : ['#4da3ff'];
   box.innerHTML = state.jointNames
     .map((name, i) => {
-      const deg = (((q[i] || 0) * 180) / Math.PI).toFixed(1);
       const color = colors[i % colors.length];
-      return `<span><i style="background:${color}"></i>${name} ${deg}°</span>`;
+      return `<span class="on" data-joint="${i}"><i style="background:${color}"></i>${name}</span>`;
     })
     .join('');
+
+  box.querySelectorAll('span').forEach((chip) => {
+    chip.onclick = () => {
+      const i = Number(chip.dataset.joint);
+      if (plot) plot.toggleJoint(i);
+      chip.classList.toggle('on');
+    };
+  });
 }
 
-// ---------- 波形高度拖动 ----------
+let legendStamp = 0;
+function updateLegend(q) {
+  // 关节选择行只显示名字和开关状态，具体数值在"状态"页的表格里
+  return;
+}
+
+// ---------------- 分页 ----------------
+function bindTabs() {
+  el('tabs').querySelectorAll('button').forEach((btn) => {
+    btn.onclick = () => {
+      el('tabs').querySelectorAll('button').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.pane').forEach((p) => p.classList.remove('active'));
+      const pane = el(`tab-${btn.dataset.tab}`);
+      if (pane) pane.classList.add('active');
+      if (plot) setTimeout(() => plot.resize(), 0);
+    };
+  });
+}
+
+// ---------------- 波形高度拖动 ----------------
 function bindSplitter() {
   const app = el('app');
   const split = el('splitter');
@@ -370,29 +416,15 @@ function bindSplitter() {
   });
 }
 
-function log(level, text) {
-  const box = el('log');
-  const line = document.createElement('div');
-  line.className = level;
-  line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
-  box.appendChild(line);
-  box.scrollTop = box.scrollHeight;
-  while (box.childElementCount > 300) {
-    box.removeChild(box.firstChild);
-  }
-}
-
 // ---------------- IK 节流（只保留最新一次） ----------------
 let ikTimer = null;
 
 function scheduleIK() {
-  if (ikTimer) {
-    return;
-  }
+  if (ikTimer) return;
   ikTimer = setTimeout(() => {
     ikTimer = null;
     requestIK();
-  }, 33); // 约 30 Hz
+  }, 33);
 }
 
 function requestIK() {
@@ -403,12 +435,51 @@ function requestIK() {
     seq,
     pos: pose.pos,
     quat: pose.quat,
-    seed: state.previewQ || state.q, // 和 RViz 一样：用上一次的解作为下一次的种子
+    seed: state.previewQ || state.q,
   });
+}
+
+// ---------------- 电机调试 ----------------
+function renderMotorConfig(msg) {
+  const box = el('dbgConfig');
+  if (!box) return;
+  const f = msg.fields || {};
+  const lines = Object.keys(f).map((k) => `${k.padEnd(14)} ${f[k]}`);
+  box.textContent = `电机 ${msg.id}\n` + lines.join('\n') + `\n\n原始: ${msg.raw || ''}`;
+}
+
+function bindDebug() {
+  el('dbgRead').onclick = () => {
+    send({ type: 'motor_read', id: Number(el('dbgMotor').value) });
+  };
+
+  el('dbgAckApply').onclick = () => {
+    const id = Number(el('dbgMotor').value);
+    const value = Number(el('dbgAck').value);
+    if (!confirm(`把电机 ${id} 的控制命令应答方式改为 ${el('dbgAck').selectedOptions[0].text} 并写入 flash？`)) return;
+    send({ type: 'motor_write', id, field: 'ack', value, save: true });
+  };
+
+  el('dbgBitrateApply').onclick = () => {
+    const id = Number(el('dbgMotor').value);
+    const value = Number(el('dbgBitrate').value);
+    if (!confirm(`把电机 ${id} 的 CAN 波特率改成 ${el('dbgBitrate').selectedOptions[0].text}？\n改完必须重新上电，并把本机 can0 也改到相同速率，否则会失联。`)) return;
+    send({ type: 'motor_write', id, field: 'bitrate', value, save: true });
+  };
+
+  el('dbgZero').onclick = () => {
+    const id = Number(el('dbgMotor').value);
+    if (!confirm(`把电机 ${id} 当前位置设为零点（单圈零点）？`)) return;
+    send({ type: 'motor_zero', id });
+  };
 }
 
 // ---------------- 交互 ----------------
 function bindUI() {
+  bindTabs();
+  bindSplitter();
+  bindDebug();
+
   el('modeTranslate').onclick = () => {
     view.setMode('translate');
     el('modeTranslate').classList.add('active');
@@ -419,6 +490,14 @@ function bindUI() {
     view.setMode('rotate');
     el('modeRotate').classList.add('active');
     el('modeTranslate').classList.remove('active');
+  };
+
+  el('ikCollision').onchange = () => {
+    state.avoidCollisions = el('ikCollision').checked;
+    const badge = el('ikMode');
+    badge.textContent = state.avoidCollisions ? '开' : '关';
+    badge.className = `badge ${state.avoidCollisions ? 'ok' : 'bad'}`;
+    send({ type: 'set_ik', avoid_collisions: state.avoidCollisions });
   };
 
   el('btnSnap').onclick = () => {
@@ -436,18 +515,25 @@ function bindUI() {
     el('ikInfo').style.color = 'var(--muted)';
   };
 
+  el('btnView').onclick = () => view.resetView();
+
+  el('btnSyncSliders').onclick = () => {
+    state.previewQ = null;
+    view.setJoints(state.q);
+    syncSliders(state.q);
+    el('btnExecute').disabled = true;
+    el('ikInfo').textContent = 'IK：—';
+    el('ikInfo').style.color = 'var(--muted)';
+  };
+
   const vel = el('velScale');
   const acc = el('accScale');
-  vel.oninput = () => {
-    el('velScaleVal').textContent = Number(vel.value).toFixed(2);
-  };
-  acc.oninput = () => {
-    el('accScaleVal').textContent = Number(acc.value).toFixed(2);
-  };
+  vel.oninput = () => { el('velScaleVal').textContent = Number(vel.value).toFixed(2); };
+  acc.oninput = () => { el('accScaleVal').textContent = Number(acc.value).toFixed(2); };
 
   el('btnExecute').onclick = () => {
     if (!state.previewQ) {
-      log('warn', '还没有 IK 预览结果');
+      log('warn', '还没有预览结果');
       return;
     }
     state.executing = true;
@@ -461,9 +547,7 @@ function bindUI() {
   };
 
   el('btnHome').onclick = () => {
-    if (!confirm('确认回到全零位姿？')) {
-      return;
-    }
+    if (!confirm('确认回到全零位姿？')) return;
     state.executing = true;
     send({
       type: 'execute',
@@ -474,30 +558,21 @@ function bindUI() {
   };
 
   el('btnEstop').onclick = () => {
-    if (!confirm('急停会停控制器并把硬件切到 inactive，确认？')) {
-      return;
-    }
+    if (!confirm('急停会停控制器并把硬件切到 inactive，确认？')) return;
     send({ type: 'estop' });
   };
 
-  el('btnView').onclick = () => view.resetView();
-
-  el('btnSyncSliders').onclick = () => {
-    state.previewQ = null;
-    view.setJoints(state.q);
-    syncSliders(state.q);
-    el('btnExecute').disabled = true;
-    el('ikInfo').textContent = 'IK：—';
-    el('ikInfo').style.color = 'var(--muted)';
+  // 波形
+  el('plotSignal').onchange = () => {
+    if (plot) plot.setSignal(el('plotSignal').value);
   };
-
-  el('plotZoomIn').onclick = () => plot && plot.zoom(0.6);
-  el('plotZoomOut').onclick = () => plot && plot.zoom(1.7);
-  el('plotReset').onclick = () => plot && plot.reset();
-
-  bindSplitter();
+  el('plotZoomInY').onclick = () => plot && plot.zoomY(1 / 1.3);
+  el('plotZoomOutY').onclick = () => plot && plot.zoomY(1.3);
+  el('plotReset').onclick = () => plot && plot.resetAxes();
 }
 
 bindUI();
 connect();
+
+
 

@@ -26,71 +26,125 @@
   <div id="splitter" title="拖动调整波形高度"></div>
 
   <aside id="side">
-    <section class="panel">
-      <h2>状态</h2>
-      <div class="row"><span>连接</span><span id="conn" class="badge bad">未连接</span></div>
-      <div id="controllers" class="list"></div>
-      <div id="hardware" class="list"></div>
-    </section>
+    <nav id="tabs">
+      <button data-tab="status" class="tab active">状态</button>
+      <button data-tab="joints" class="tab">滑块</button>
+      <button data-tab="motion" class="tab">拖拽/执行</button>
+      <button data-tab="debug" class="tab">调试</button>
+    </nav>
 
-    <section class="panel">
-      <h2>关节</h2>
-      <table id="jointTable">
-        <thead><tr><th>关节</th><th>位置(°)</th><th>速度(°/s)</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section class="panel">
-      <h2>关节滑块</h2>
-      <div id="jointSliders" class="sliders"></div>
-      <div class="row">
-        <button id="btnSyncSliders">同步到当前姿态</button>
+    <!-- 状态 -->
+    <section id="tab-status" class="pane active">
+      <div class="panel">
+        <div class="row"><span>连接</span><span id="conn" class="badge bad">未连接</span></div>
+        <div class="row"><span>IK 碰撞检测</span><span id="ikMode" class="badge ok">开</span></div>
+        <div id="controllers" class="list"></div>
+        <div id="hardware" class="list"></div>
+      </div>
+      <div class="panel">
+        <h2>关节</h2>
+        <table id="jointTable">
+          <thead><tr><th>关节</th><th>位置(°)</th><th>速度(°/s)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel grow">
+        <h2>日志</h2>
+        <div id="log" class="log"></div>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>拖拽</h2>
-      <div class="row">
-        <button id="modeTranslate" class="tab active">平移</button>
-        <button id="modeRotate" class="tab">旋转</button>
+    <!-- 滑块 -->
+    <section id="tab-joints" class="pane">
+      <div class="panel">
+        <h2>关节滑块</h2>
+        <div id="jointSliders" class="sliders"></div>
+        <div class="row"><button id="btnSyncSliders">同步到当前姿态</button></div>
+        <div class="hint">拖动只做预览，点"执行"生效（和 RViz 的 Joints 面板一致）</div>
       </div>
-      <div class="row hint">拖动模型末端的坐标轴/圆环，机器人按 MoveIt IK 跟随</div>
-      <div class="row">
-        <button id="btnSnap">对准当前末端</button>
-        <button id="btnCancelPreview">取消预览</button>
-      </div>
-      <div class="row">
-        <button id="btnView">重置视角（正视 base_link）</button>
-      </div>
-      <div id="ikInfo" class="hint">IK：—</div>
     </section>
 
-    <section class="panel">
-      <h2>执行</h2>
-      <label class="row">速度缩放 <input id="velScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="velScaleVal">0.20</span></label>
-      <label class="row">加速度缩放 <input id="accScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="accScaleVal">0.20</span></label>
-      <button id="btnExecute" class="primary" disabled>执行预览位姿</button>
-      <div class="row">
-        <button id="btnHome">回零</button>
+    <!-- 拖拽 / 执行 -->
+    <section id="tab-motion" class="pane">
+      <div class="panel">
+        <h2>拖拽</h2>
+        <div class="row">
+          <button id="modeTranslate" class="tab active">平移</button>
+          <button id="modeRotate" class="tab">旋转</button>
+        </div>
+        <label class="row"><span>IK 自碰撞检测</span><input id="ikCollision" type="checkbox" checked /></label>
+        <div class="row">
+          <button id="btnSnap">对准当前末端</button>
+          <button id="btnCancelPreview">取消预览</button>
+        </div>
+        <div class="row"><button id="btnView">重置视角（正视 base_link）</button></div>
+        <div id="ikInfo" class="hint">IK：—</div>
       </div>
-      <button id="btnEstop" class="danger">急停</button>
+
+      <div class="panel">
+        <h2>执行</h2>
+        <label class="row">速度缩放 <input id="velScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="velScaleVal">0.20</span></label>
+        <label class="row">加速度缩放 <input id="accScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="accScaleVal">0.20</span></label>
+        <button id="btnExecute" class="primary" disabled>执行预览位姿</button>
+        <div class="row"><button id="btnHome">回零</button></div>
+        <button id="btnEstop" class="danger">急停</button>
+      </div>
     </section>
 
-    <section class="panel grow">
-      <h2>日志</h2>
-      <div id="log" class="log"></div>
+    <!-- 调试 -->
+    <section id="tab-debug" class="pane">
+      <div class="panel">
+        <h2>电机调试</h2>
+        <div class="hint">需要机械臂处于 inactive（先"停控制器->硬件 inactive"）。所有写入会先读回确认。</div>
+        <div class="row">
+          <span>电机</span>
+          <select id="dbgMotor">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+          </select>
+          <button id="dbgRead">读配置</button>
+        </div>
+        <pre id="dbgConfig" class="config">（未读取）</pre>
+      </div>
+
+      <div class="panel">
+        <h2>常用操作</h2>
+        <label class="row">CAN 波特率
+          <select id="dbgBitrate">
+            <option value="3">125K</option><option value="4">250K</option>
+            <option value="5" selected>500K</option><option value="6">800K</option>
+            <option value="7">1M</option>
+          </select>
+        </label>
+        <label class="row">控制命令应答
+          <select id="dbgAck">
+            <option value="0">None</option><option value="1" selected>Receive</option>
+            <option value="2">Reached</option><option value="3">Both</option>
+          </select>
+        </label>
+        <div class="row">
+          <button id="dbgAckApply">写入应答方式</button>
+          <button id="dbgBitrateApply">写入波特率</button>
+        </div>
+        <div class="hint">改波特率后需要重新上电，且本机 can0 也要改，否则通信中断。</div>
+        <div class="row"><button id="dbgZero">编码器清零（设当前为零点）</button></div>
+      </div>
     </section>
   </aside>
 
   <footer id="plotArea">
     <div class="plot-head">
-      <span class="plot-title">关节位置（°）</span>
-      <span id="plotLegend" class="plot-legend"></span>
+      <select id="plotSignal" title="选择波形">
+        <option value="pos">位置</option>
+        <option value="vel">速度</option>
+        <option value="ref">参考位置</option>
+        <option value="err">误差</option>
+      </select>
+      <span id="jointToggles" class="plot-legend"></span>
       <span class="plot-tools">
-        <button id="plotZoomIn" title="放大">＋</button>
-        <button id="plotZoomOut" title="缩小">－</button>
-        <button id="plotReset" title="回到最近 30 秒">重置</button>
+        <button id="plotZoomInY" title="Y 轴放大">Y＋</button>
+        <button id="plotZoomOutY" title="Y 轴缩小">Y－</button>
+        <button id="plotReset" title="重置坐标轴">重置</button>
       </span>
     </div>
     <div id="plot"></div>

@@ -14,6 +14,8 @@
 import asyncio
 import json
 import os
+import socket
+import struct
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -45,11 +47,123 @@ from rclpy.duration import Duration
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from control_msgs.msg import JointTrajectoryControllerState
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 DEFAULT_JOINTS = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
 IK_TIMEOUT_SEC = 0.05
+CAN_EFF_FLAG = 0x80000000
+
+
+class MotorDebug:
+    """直接走 SocketCAN 读写电机配置。只在硬件 inactive（已关闭 CAN）时使用。"""
+
+    ACK_INDEX = 21       # 控制命令应答方式
+    BITRATE_INDEX = 19   # CAN 速率档位
+
+    FIELDS = [
+        ("锁定按键", 0, 1), ("控制模式", 1, 1), ("脉冲复用", 2, 1), ("通讯复用", 3, 1),
+        ("En电平", 4, 1), ("Dir电平", 5, 1), ("细分", 6, 1), ("细分插补", 7, 1),
+        ("保留1", 8, 1), ("保留2", 9, 1), ("开环电流mA", 10, 2), ("闭环电流mA", 12, 2),
+        ("最大转速rpm", 14, 2), ("电流环带宽", 16, 2), ("串口波特率", 18, 1), ("CAN速率档", 19, 1),
+        ("校验方式", 20, 1), ("控制命令应答", 21, 1), ("角度10倍输入", 22, 1), ("堵转保护", 23, 1),
+        ("堵转转速rpm", 24, 2), ("堵转电流mA", 26, 2), ("堵转时间ms", 28, 2), ("到位窗口", 30, 2),
+    ]
+
+    def __init__(self, iface="can0"):
+        self.iface = iface
+        self.sock = None
+
+    def _ensure(self):
+        if self.sock is None:
+            sock = socket.socket(socket.AF_CAN, socket.SOCK_RAW, socket.CAN_RAW)
+            sock.bind((self.iface,))
+            sock.settimeout(0.002)
+            self.sock = sock
+
+    def close(self):
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+
+    def _send(self, addr, payload):
+        self._ensure()
+        pos = 0
+        pack = 0
+        while pos < len(payload):
+            if pack == 0:
+                chunk = payload[pos:pos + 8]
+                frame = list(chunk)
+            else:
+                chunk = payload[pos:pos + 7]
+                frame = [payload[0]] + list(chunk)
+            pos += len(chunk)
+            can_id = ((addr << 8) | pack) | CAN_EFF_FLAG
+            data = bytes(frame).ljust(8, b"\x00")
+            self.sock.send(struct.pack("=IB3x8s", can_id, len(frame), data))
+            pack += 1
+            time.sleep(0.002)
+
+    def _recv(self, addr, timeout=0.6):
+        self._ensure()
+        pending = {}
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            try:
+                raw = self.sock.recv(16)
+            except socket.timeout:
+                continue
+            can_id, dlc = struct.unpack("=IB3x", raw[:8])
+            if not (can_id & CAN_EFF_FLAG):
+                continue
+            can_id &= 0x1FFFFFFF
+            if ((can_id >> 8) & 0xFF) != addr:
+                continue
+            pack = can_id & 0xFF
+            data = raw[8:8 + dlc]
+            if pack == 0:
+                buf = bytearray(data)
+            else:
+                buf = pending.get(addr)
+                if buf is None:
+                    continue
+                buf.extend(data[1:])
+            if dlc < 8 or (dlc == 8 and data[7] == 0x6B):
+                pending.pop(addr, None)
+                return bytes(buf)
+            pending[addr] = buf
+        return None
+
+    def read_config(self, addr):
+        self._send(addr, [0x42, 0x6C, 0x6B])
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            msg = self._recv(addr, 0.5)
+            if msg and len(msg) > 4 and msg[0] == 0x42:
+                data = msg[3:-1]
+                if len(data) != 32:
+                    raise RuntimeError("配置长度异常 %d" % len(data))
+                return bytes(data)
+        raise RuntimeError("读配置超时")
+
+    def write_config(self, addr, data, save=True):
+        self._send(addr, [0x48, 0xD1, 1 if save else 0] + list(data) + [0x6B])
+        time.sleep(0.15)
+
+    def clear_position(self, addr):
+        self._send(addr, [0x0A, 0x6D, 0x6B])
+        time.sleep(0.05)
+
+    @classmethod
+    def parse(cls, data):
+        out = {}
+        for name, offset, size in cls.FIELDS:
+            if size == 1:
+                out[name] = data[offset]
+            else:
+                out[name] = (data[offset] << 8) | data[offset + 1]
+        return out
 
 
 class Bridge(Node):
@@ -65,7 +179,8 @@ class Bridge(Node):
         self.declare_parameter("controller_name", "manipulator_controller")
         self.declare_parameter("joint_names", DEFAULT_JOINTS)
         self.declare_parameter("mesh_package", "if_arm_lite")
-        self.declare_parameter("ik_avoid_collisions", False)
+        self.declare_parameter("ik_avoid_collisions", True)
+        self.declare_parameter("can_interface", "can0")
 
         self.host = self.get_parameter("host").value
         self.http_port = int(self.get_parameter("http_port").value)
@@ -77,9 +192,12 @@ class Bridge(Node):
         self.joint_names = list(self.get_parameter("joint_names").value)
         self.mesh_package = self.get_parameter("mesh_package").value
         self.ik_avoid_collisions = bool(self.get_parameter("ik_avoid_collisions").value)
+        self.motor = MotorDebug(self.get_parameter("can_interface").value)
 
         self.q = [0.0] * len(self.joint_names)
         self.dq = [0.0] * len(self.joint_names)
+        self.ref = [0.0] * len(self.joint_names)
+        self.err = [0.0] * len(self.joint_names)
         self.stamp = 0.0
         self.urdf = ""
         self.urdf_received = False
@@ -95,6 +213,9 @@ class Bridge(Node):
                               reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(String, "/robot_description", self._on_urdf, desc_qos,
                                  callback_group=cbg)
+        self.create_subscription(JointTrajectoryControllerState,
+                                 "/manipulator_controller/state",
+                                 self._on_controller_state, 10, callback_group=cbg)
 
         self.ik_client = self.create_client(GetPositionIK, "/compute_ik", callback_group=cbg)
         self.list_controllers = self.create_client(
@@ -132,8 +253,23 @@ class Bridge(Node):
         # 不再依赖定时器（定时器会被事件循环的抖动拖慢）。
         if self.loop is not None and self.state_slots:
             payload = {"type": "state", "q": list(self.q), "dq": list(self.dq),
+                       "ref": list(self.ref), "err": list(self.err),
                        "t": self.stamp}
             self.loop.call_soon_threadsafe(self.publish_state, payload)
+
+    def _on_controller_state(self, msg: JointTrajectoryControllerState):
+        """JTC 的参考位置和跟踪误差，用来画参考/误差波形。"""
+        ref = list(self.ref)
+        err = list(self.err)
+        for name, value in zip(msg.joint_names, msg.reference.positions):
+            if name in self.joint_names:
+                ref[self.joint_names.index(name)] = float(value)
+        for name, value in zip(msg.joint_names, msg.error.positions):
+            if name in self.joint_names:
+                err[self.joint_names.index(name)] = float(value)
+        self.ref = ref
+        self.err = err
+        self.publish_state_source = True
 
     def _on_urdf(self, msg: String):
         self.urdf = msg.data
@@ -453,6 +589,81 @@ class Bridge(Node):
             result = await self.estop()
             await self.broadcast({"type": "estop", **result})
             return
+
+        if kind == "set_ik":
+            self.ik_avoid_collisions = bool(msg.get("avoid_collisions", True))
+            await self.broadcast({"type": "log", "level": "info",
+                                  "msg": "IK 碰撞检测: %s" %
+                                         ("开" if self.ik_avoid_collisions else "关")})
+            return
+
+        if kind == "motor_read":
+            await self.send_json(websocket, await self.motor_read(int(msg.get("id", 1))))
+            return
+
+        if kind == "motor_write":
+            result = await self.motor_write(int(msg.get("id", 1)), msg.get("field", "ack"),
+                                            int(msg.get("value", 0)), bool(msg.get("save", True)))
+            await self.broadcast(result)
+            return
+
+        if kind == "motor_zero":
+            await self.broadcast(await self.motor_clear(int(msg.get("id", 1))))
+            return
+
+
+    # ---------------- 电机调试 --------------
+    def hardware_active(self):
+        return any(c.get("state") == "active" for c in self.status.get("hardware", []))
+
+    async def motor_read(self, addr):
+        if self.hardware_active():
+            return {"type": "motor_config", "id": addr,
+                    "error": "硬件处于 active，先停控制器并切到 inactive"}
+        loop = asyncio.get_running_loop()
+        try:
+            data = await loop.run_in_executor(None, self.motor.read_config, addr)
+        except Exception as exc:  # noqa: BLE001
+            return {"type": "motor_config", "id": addr, "error": str(exc)}
+        return {"type": "motor_config", "id": addr,
+                "fields": MotorDebug.parse(data),
+                "raw": data.hex(" ").upper()}
+
+    async def motor_write(self, addr, field, value, save):
+        if self.hardware_active():
+            return {"type": "motor_result", "id": addr, "action": field, "ok": False,
+                    "detail": "硬件处于 active，先停控制器并切到 inactive"}
+        index = MotorDebug.ACK_INDEX if field == "ack" else MotorDebug.BITRATE_INDEX
+        loop = asyncio.get_running_loop()
+
+        def work():
+            data = bytearray(self.motor.read_config(addr))
+            data[index] = value
+            self.motor.write_config(addr, data, save)
+            return self.motor.read_config(addr)[index]
+
+        try:
+            got = await loop.run_in_executor(None, work)
+        except Exception as exc:  # noqa: BLE001
+            return {"type": "motor_result", "id": addr, "action": field,
+                    "ok": False, "detail": str(exc)}
+        ok = got == value
+        return {"type": "motor_result", "id": addr, "action": field, "ok": ok,
+                "detail": ("读回 %d" % got) if ok else
+                          ("读回 %d，与写入 %d 不符" % (got, value))}
+
+    async def motor_clear(self, addr):
+        if self.hardware_active():
+            return {"type": "motor_result", "id": addr, "action": "zero", "ok": False,
+                    "detail": "硬件处于 active，先停控制器并切到 inactive"}
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, self.motor.clear_position, addr)
+        except Exception as exc:  # noqa: BLE001
+            return {"type": "motor_result", "id": addr, "action": "zero",
+                    "ok": False, "detail": str(exc)}
+        return {"type": "motor_result", "id": addr, "action": "zero", "ok": True,
+                "detail": "已发送位置清零命令 0x0A 0x6D"}
 
 
 def make_http_handler(web_dir, ws_port):

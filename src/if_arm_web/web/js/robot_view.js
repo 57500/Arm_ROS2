@@ -8,7 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import URDFLoader from '../vendor/urdf/URDFLoader.js';
 
-const HOME_CAMERA = new THREE.Vector3(0, -1.25, 0.45);
+const HOME_CAMERA = new THREE.Vector3(1.25, 0, 0.45);   // 从 -Y 正视再绕 Z 逆时针转 90°
 const HOME_TARGET = new THREE.Vector3(0, 0, 0.22);
 
 export class RobotView {
