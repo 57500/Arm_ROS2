@@ -1,4 +1,4 @@
-// 关节位置波形（uPlot，最近 30 秒滚动）
+// 关节位置波形（uPlot，最近 30 秒滚动，支持缩放）
 
 const COLORS = ['#4da3ff', '#3fb950', '#d29922', '#f85149', '#a371f7', '#39c5cf'];
 
@@ -8,12 +8,13 @@ export class JointPlot {
     this.jointNames = jointNames;
     this.windowSec = 30;
     this.data = [[]].concat(jointNames.map(() => []));
+    this.yZoom = 1;
 
     const series = [{ label: '时间' }].concat(
       jointNames.map((name, i) => ({
         label: name,
         stroke: COLORS[i % COLORS.length],
-        width: 1.4,
+        width: 1.5,
         points: { show: false },
       }))
     );
@@ -25,19 +26,10 @@ export class JointPlot {
         padding: [6, 10, 0, 0],
         cursor: { drag: { x: true, y: false } },
         scales: { x: { time: true }, y: { auto: true } },
-        legend: { show: true },
+        legend: { show: false },
         axes: [
-          {
-            stroke: '#8b98a9',
-            grid: { stroke: '#2b323c' },
-            ticks: { stroke: '#2b323c' },
-          },
-          {
-            stroke: '#8b98a9',
-            grid: { stroke: '#2b323c' },
-            ticks: { stroke: '#2b323c' },
-            size: 52,
-          },
+          { stroke: '#8b98a9', grid: { stroke: '#2b323c' }, ticks: { stroke: '#2b323c' } },
+          { stroke: '#8b98a9', grid: { stroke: '#2b323c' }, ticks: { stroke: '#2b323c' }, size: 52 },
         ],
         series,
       },
@@ -71,5 +63,44 @@ export class JointPlot {
       this.data.forEach((arr) => arr.shift());
     }
     this.uplot.setData(this.data);
+
+    if (!this.uplot.scales.x.max || this.uplot.scales.x.max < t) {
+      this.reset();
+    }
+  }
+
+  /** 以右端为中心缩放：factor < 1 放大，> 1 缩小 */
+  zoom(factor) {
+    const xs = this.data[0];
+    if (!xs.length) {
+      return;
+    }
+    const now = xs[xs.length - 1];
+    const cur = this.uplot.scales.x;
+    const span = (cur.max || now) - (cur.min || now - this.windowSec);
+    const next = Math.max(2, Math.min(this.windowSec, span * factor));
+    this.uplot.setScale('x', { min: now - next, max: now });
+  }
+
+  reset() {
+    const xs = this.data[0];
+    if (!xs.length) {
+      return;
+    }
+    const now = xs[xs.length - 1];
+    this.uplot.setScale('x', { min: now - this.windowSec, max: now });
+  }
+
+  latest() {
+    const idx = this.data[0].length - 1;
+    if (idx < 0) {
+      return null;
+    }
+    return this.data.map((arr) => arr[idx]);
+  }
+
+  colors() {
+    return COLORS;
   }
 }
+

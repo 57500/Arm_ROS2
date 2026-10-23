@@ -4,6 +4,9 @@
 import { RobotView } from './robot_view.js';
 import { JointPlot } from './plot.js';
 
+let lastTableAt = 0;
+let lastPlotAt = 0;
+
 const state = {
   ws: null,
   connected: false,
@@ -125,11 +128,20 @@ function handleMessage(msg) {
 
     case 'state':
       state.q = msg.q || state.q;
-      updateJointTable(state.q, msg.dq);
       if (!state.previewQ) {
-        view.setJoints(state.q);
+        view.setTargetJoints(state.q);
+        syncSliders(state.q);
       }
-      if (plot) {
+
+      // 表格 10 Hz、波形 20 Hz，避免 100 Hz 数据把界面拖慢
+      const now = performance.now();
+      if (now - lastTableAt > 100) {
+        lastTableAt = now;
+        updateJointTable(state.q, msg.dq);
+        updateLegend(state.q);
+      }
+      if (plot && now - lastPlotAt > 50) {
+        lastPlotAt = now;
         plot.push(msg.t || Date.now() / 1000, state.q);
       }
       break;
@@ -196,6 +208,8 @@ function loadURDF(xml) {
     view.loadURDF(xml, state.meshPackage || 'if_arm_lite');
     view.onGizmoChange = scheduleIK;
     view.setJoints(state.q);
+    applyJointLimits(xml);
+    syncSliders(state.q);
     setHint('');
   } catch (err) {
     showFatal('加载 URDF 失败: ' + err.message);
@@ -210,6 +224,7 @@ function initTables() {
     tr.innerHTML = `<td>${name}</td><td class="pos">0.0</td><td class="vel">0.0</td>`;
     tbody.appendChild(tr);
   });
+  buildSliders();
   if (!plot) {
     try {
       plot = new JointPlot(el('plot'), state.jointNames);
@@ -233,6 +248,126 @@ function renderStatus(msg) {
   el('hardware').innerHTML = (msg.hardware || [])
     .map((h) => `<div class="item"><span>${h.name}</span><span>${h.state}</span></div>`)
     .join('');
+}
+
+// ---------- 关节滑块 ----------
+let sliderInputs = [];
+
+function buildSliders() {
+  const box = el('jointSliders');
+  box.innerHTML = '';
+  sliderInputs = [];
+
+  state.jointNames.forEach((name, i) => {
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    const label = document.createElement('span');
+    label.className = 'name';
+    label.textContent = name;
+
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = '-180';
+    input.max = '180';
+    input.step = '0.5';
+    input.value = String(((state.q[i] || 0) * 180) / Math.PI);
+
+    const val = document.createElement('span');
+    val.className = 'val';
+    val.textContent = Number(input.value).toFixed(1);
+
+    input.oninput = () => {
+      const deg = Number(input.value);
+      val.textContent = deg.toFixed(1);
+      state.previewQ = (state.previewQ || state.q.slice()).slice();
+      state.previewQ[i] = (deg * Math.PI) / 180;
+      view.setJoints(state.previewQ);
+      el('btnExecute').disabled = state.executing;
+      el('ikInfo').textContent = '滑块预览（点执行生效）';
+      el('ikInfo').style.color = 'var(--accent)';
+    };
+
+    row.appendChild(label);
+    row.appendChild(input);
+    row.appendChild(val);
+    box.appendChild(row);
+    sliderInputs.push(input);
+  });
+}
+
+function syncSliders(q) {
+  sliderInputs.forEach((input, i) => {
+    const deg = ((q[i] || 0) * 180) / Math.PI;
+    input.value = String(deg);
+    const val = input.parentElement.querySelector('.val');
+    if (val) val.textContent = deg.toFixed(1);
+  });
+}
+
+function applyJointLimits(xml) {
+  try {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    doc.querySelectorAll('joint').forEach((joint) => {
+      const name = joint.getAttribute('name');
+      const limit = joint.querySelector('limit');
+      const idx = state.jointNames.indexOf(name);
+      if (idx < 0 || !limit) return;
+      const lower = parseFloat(limit.getAttribute('lower'));
+      const upper = parseFloat(limit.getAttribute('upper'));
+      const input = sliderInputs[idx];
+      if (!input) return;
+      if (Number.isFinite(lower)) input.min = String((lower * 180) / Math.PI);
+      if (Number.isFinite(upper)) input.max = String((upper * 180) / Math.PI);
+    });
+  } catch (err) {
+    log('warn', '解析关节限位失败: ' + err.message);
+  }
+}
+
+// ---------- 波形图例（带当前值） ----------
+let legendStamp = 0;
+function updateLegend(q) {
+  const now = performance.now();
+  if (now - legendStamp < 100) {
+    return;  // 10 Hz 足够
+  }
+  legendStamp = now;
+  const box = el('plotLegend');
+  if (!box) return;
+  const colors = plot ? plot.colors() : ['#4da3ff'];
+  box.innerHTML = state.jointNames
+    .map((name, i) => {
+      const deg = (((q[i] || 0) * 180) / Math.PI).toFixed(1);
+      const color = colors[i % colors.length];
+      return `<span><i style="background:${color}"></i>${name} ${deg}°</span>`;
+    })
+    .join('');
+}
+
+// ---------- 波形高度拖动 ----------
+function bindSplitter() {
+  const app = el('app');
+  const split = el('splitter');
+  let dragging = false;
+
+  split.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    split.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = 'none';
+  });
+  split.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const rect = app.getBoundingClientRect();
+    let h = rect.bottom - e.clientY;
+    h = Math.max(90, Math.min(rect.height - 220, h));
+    app.style.gridTemplateRows = `1fr 6px ${h}px`;
+    if (plot) plot.resize();
+  });
+  split.addEventListener('pointerup', (e) => {
+    dragging = false;
+    document.body.style.userSelect = '';
+    split.releasePointerCapture(e.pointerId);
+  });
 }
 
 function log(level, text) {
@@ -315,9 +450,6 @@ function bindUI() {
       log('warn', '还没有 IK 预览结果');
       return;
     }
-    if (!confirm('确认执行当前预览位姿？')) {
-      return;
-    }
     state.executing = true;
     el('btnExecute').disabled = true;
     send({
@@ -347,6 +479,23 @@ function bindUI() {
     }
     send({ type: 'estop' });
   };
+
+  el('btnView').onclick = () => view.resetView();
+
+  el('btnSyncSliders').onclick = () => {
+    state.previewQ = null;
+    view.setJoints(state.q);
+    syncSliders(state.q);
+    el('btnExecute').disabled = true;
+    el('ikInfo').textContent = 'IK：—';
+    el('ikInfo').style.color = 'var(--muted)';
+  };
+
+  el('plotZoomIn').onclick = () => plot && plot.zoom(0.6);
+  el('plotZoomOut').onclick = () => plot && plot.zoom(1.7);
+  el('plotReset').onclick = () => plot && plot.reset();
+
+  bindSplitter();
 }
 
 bindUI();

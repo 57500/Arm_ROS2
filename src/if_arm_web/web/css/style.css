@@ -24,15 +24,24 @@ html, body {
 #app {
   display: grid;
   grid-template-columns: 1fr 320px;
-  grid-template-rows: 1fr 220px;
+  grid-template-rows: 1fr 6px 220px;
   grid-template-areas:
     "view side"
+    "split side"
     "plot side";
   height: 100%;
 }
 
 #viewport { grid-area: view; position: relative; min-height: 0; }
 #viewport canvas { display: block; }
+
+#splitter {
+  grid-area: split;
+  background: var(--line);
+  cursor: row-resize;
+}
+#splitter:hover { background: var(--accent); }
+
 
 #side {
   grid-area: side;
@@ -166,4 +175,53 @@ td { font-variant-numeric: tabular-nums; }
   z-index: 3;
 }
 .fatal.show { display: block; }
+
+/* 主操作按钮 */
+button.primary {
+  width: 100%;
+  padding: 14px 12px;
+  font-size: 15px;
+  font-weight: 600;
+  background: rgba(77, 163, 255, .16);
+  border-color: rgba(77, 163, 255, .55);
+  color: #9ccdff;
+  margin-bottom: 8px;
+}
+button.primary:hover:not(:disabled) { background: rgba(77, 163, 255, .26); }
+
+/* 关节滑块 */
+.sliders { display: flex; flex-direction: column; gap: 6px; }
+.slider-row { display: grid; grid-template-columns: 46px 1fr 52px; align-items: center; gap: 6px; }
+.slider-row .name { color: var(--muted); font-size: 11px; }
+.slider-row .val { text-align: right; font-variant-numeric: tabular-nums; font-size: 12px; }
+.slider-row input[type="range"] { width: 100%; }
+
+/* 波形区 */
+.plot-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.plot-title { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex: 1;
+  overflow: hidden;
+}
+.plot-legend span { white-space: nowrap; }
+.plot-legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+.plot-tools { display: flex; gap: 4px; }
+.plot-tools button { padding: 2px 8px; font-size: 12px; }
+
 

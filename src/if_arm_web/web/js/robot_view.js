@@ -1,50 +1,56 @@
 // 3D 视图：加载 URDF、跟随关节角、末端的 6 自由度拖拽手柄。
 // 只负责显示和"目标位姿"，不做 IK —— IK 由后端调 MoveIt 完成。
+//
+// 坐标约定：URDF 是 Z 向上，所以相机 up 设为 +Z，默认从 -Y 方向正视 base_link。
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import URDFLoader from '../vendor/urdf/URDFLoader.js';
 
+const HOME_CAMERA = new THREE.Vector3(0, -1.25, 0.45);
+const HOME_TARGET = new THREE.Vector3(0, 0, 0.22);
+
 export class RobotView {
   constructor(container, options = {}) {
     this.container = container;
     this.tipLink = options.tipLink || 'link6';
-    this.jointNames = options.jointNames || [];
-    this.onGizmoChange = null;   // 拖动中回调（由 app.js 节流后发 IK）
+    this.jointNames = [];
+    this.onGizmoChange = null;
     this.onDragEnd = null;
     this.robot = null;
     this.ee = null;
 
+    this.currentQ = null;   // 实际显示用的关节角（平滑后）
+    this.targetQ = null;    // 目标关节角（来自 /joint_states）
+
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x1b2129);
 
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 50);
-    this.camera.position.set(1.05, -1.05, 0.85);
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.01, 50);
+    this.camera.up.set(0, 0, 1);          // Z 向上，和 URDF 一致
+    this.camera.position.copy(HOME_CAMERA);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.container.appendChild(this.renderer.domElement);
 
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
-    this.orbit.target.set(0, 0, 0.25);
+    this.orbit.target.copy(HOME_TARGET);
     this.orbit.enableDamping = true;
-    this.orbit.dampingFactor = 0.08;
+    this.orbit.dampingFactor = 0.1;
     this.orbit.update();
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x30353d, 1.6);
-    this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.4);
-    dir.position.set(1.2, 1.5, 1.8);
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x30353d, 1.8));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.5);
+    dir.position.set(1.2, -1.5, 1.8);
     this.scene.add(dir);
 
     const grid = new THREE.GridHelper(2, 20, 0x5a667a, 0x333c48);
-    grid.position.z = 0;
-    grid.rotation.x = Math.PI / 2;   // URDF 是 Z 向上，网格放到 XY 平面
+    grid.rotation.x = Math.PI / 2;   // 网格放到 XY 平面
     this.scene.add(grid);
     this.scene.add(new THREE.AxesHelper(0.12));
 
-    // 拖拽手柄的代理对象
     this.target = new THREE.Object3D();
     this.scene.add(this.target);
 
@@ -73,6 +79,7 @@ export class RobotView {
 
     this.renderer.setAnimationLoop(() => {
       this.orbit.update();
+      this.updateSmoothing();
       this.renderer.render(this.scene, this.camera);
     });
   }
@@ -84,6 +91,14 @@ export class RobotView {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);   // 同时更新 CSS 尺寸，避免高 DPI 下画面被放大裁切
   }
+
+  /** 回到正视 base_link 的初始视角 */
+  resetView() {
+    this.camera.position.copy(HOME_CAMERA);
+    this.orbit.target.copy(HOME_TARGET);
+    this.orbit.update();
+  }
+
 
   loadURDF(xml, meshPackage) {
     if (!xml) {
@@ -121,6 +136,45 @@ export class RobotView {
       }
     });
     this.robot.updateMatrixWorld(true);
+    this.currentQ = values.slice();
+    this.targetQ = values.slice();
+  }
+
+  /** 设定目标角，由渲染循环平滑逼近（/joint_states 高频更新时更顺） */
+  setTargetJoints(values) {
+    if (!values) {
+      return;
+    }
+    if (!this.currentQ) {
+      this.currentQ = values.slice();
+    }
+    this.targetQ = values.slice();
+  }
+
+  updateSmoothing() {
+    if (!this.robot || !this.targetQ || !this.currentQ) {
+      return;
+    }
+    let changed = false;
+    const n = Math.min(this.targetQ.length, this.currentQ.length);
+    for (let i = 0; i < n; i += 1) {
+      const diff = this.targetQ[i] - this.currentQ[i];
+      if (Math.abs(diff) > 1e-4) {
+        this.currentQ[i] += diff * 0.4;
+        changed = true;
+      } else if (diff !== 0) {
+        this.currentQ[i] = this.targetQ[i];
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.jointNames.forEach((name, i) => {
+        if (i < this.currentQ.length) {
+          this.robot.setJointValue(name, this.currentQ[i]);
+        }
+      });
+      this.robot.updateMatrixWorld(true);
+    }
   }
 
   setMode(mode) {

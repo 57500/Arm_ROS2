@@ -23,6 +23,8 @@
     <div id="fatal" class="fatal"></div>
   </main>
 
+  <div id="splitter" title="拖动调整波形高度"></div>
+
   <aside id="side">
     <section class="panel">
       <h2>状态</h2>
@@ -40,6 +42,14 @@
     </section>
 
     <section class="panel">
+      <h2>关节滑块</h2>
+      <div id="jointSliders" class="sliders"></div>
+      <div class="row">
+        <button id="btnSyncSliders">同步到当前姿态</button>
+      </div>
+    </section>
+
+    <section class="panel">
       <h2>拖拽</h2>
       <div class="row">
         <button id="modeTranslate" class="tab active">平移</button>
@@ -50,6 +60,9 @@
         <button id="btnSnap">对准当前末端</button>
         <button id="btnCancelPreview">取消预览</button>
       </div>
+      <div class="row">
+        <button id="btnView">重置视角（正视 base_link）</button>
+      </div>
       <div id="ikInfo" class="hint">IK：—</div>
     </section>
 
@@ -57,8 +70,8 @@
       <h2>执行</h2>
       <label class="row">速度缩放 <input id="velScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="velScaleVal">0.20</span></label>
       <label class="row">加速度缩放 <input id="accScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="accScaleVal">0.20</span></label>
+      <button id="btnExecute" class="primary" disabled>执行预览位姿</button>
       <div class="row">
-        <button id="btnExecute" disabled>执行预览位姿</button>
         <button id="btnHome">回零</button>
       </div>
       <button id="btnEstop" class="danger">急停</button>
@@ -71,7 +84,15 @@
   </aside>
 
   <footer id="plotArea">
-    <div class="plot-title">关节位置（°/最近 30 秒）</div>
+    <div class="plot-head">
+      <span class="plot-title">关节位置（°）</span>
+      <span id="plotLegend" class="plot-legend"></span>
+      <span class="plot-tools">
+        <button id="plotZoomIn" title="放大">＋</button>
+        <button id="plotZoomOut" title="缩小">－</button>
+        <button id="plotReset" title="回到最近 30 秒">重置</button>
+      </span>
+    </div>
     <div id="plot"></div>
   </footer>
 </div>
