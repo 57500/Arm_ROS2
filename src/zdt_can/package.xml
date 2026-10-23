@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>zdt_can</name>
+  <version>0.1.0</version>
+  <description>ZDT Y42 CAN bus and protocol library (no ROS dependency)</description>
+  <maintainer email="a57500@example.com">a57500</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
