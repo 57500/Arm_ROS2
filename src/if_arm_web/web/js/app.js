@@ -18,7 +18,46 @@ const state = {
 
 const el = (id) => document.getElementById(id);
 
-const view = new RobotView(el('viewport'), { tipLink: 'link6', jointNames: [] });
+function showFatal(text) {
+  const box = el('fatal');
+  if (box) {
+    box.textContent = String(text);
+    box.classList.add('show');
+  }
+  log('error', String(text));
+}
+
+function setHint(text) {
+  const hint = el('viewportHint');
+  if (!hint) return;
+  if (!text) {
+    hint.classList.add('hidden');
+  } else {
+    hint.classList.remove('hidden');
+    hint.textContent = text;
+  }
+}
+
+window.addEventListener('error', (e) => showFatal('JS 错误: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => showFatal('Promise 异常: ' + e.reason));
+
+// 3D 初始化失败时用空对象兜底，保证状态/波形/按钮仍然可用
+let view;
+try {
+  view = new RobotView(el('viewport'), { tipLink: 'link6', jointNames: [] });
+} catch (err) {
+  showFatal('初始化 3D 视图失败: ' + err.message);
+  view = {
+    jointNames: [],
+    setJoints() {},
+    setMode() {},
+    snapToEE() {},
+    loadURDF() {},
+    getTargetPose() {
+      return { pos: [0, 0, 0], quat: [0, 0, 0, 1] };
+    },
+  };
+}
 let plot = null;
 
 // ---------------- WebSocket ----------------
@@ -39,10 +78,13 @@ async function connect() {
   ws.onopen = () => {
     state.connected = true;
     setConn(true);
+    setHint('已连接，等待模型…');
+    log('info', 'WebSocket 已连接');
   };
   ws.onclose = () => {
     state.connected = false;
     setConn(false);
+    setHint('未连接桥接节点（3 秒后重连）');
     log('warn', '连接断开，3 秒后重连');
     setTimeout(connect, 3000);
   };
@@ -72,6 +114,8 @@ function handleMessage(msg) {
       initTables();
       if (msg.urdf) {
         loadURDF(msg.urdf);
+      } else {
+        setHint('已连接，等待 URDF…');
       }
       break;
 
@@ -143,13 +187,19 @@ function setConn(ok) {
 }
 
 function loadURDF(xml) {
-  if (state.urdfLoaded) {
+  if (state.urdfLoaded || !xml) {
     return;
   }
   state.urdfLoaded = true;
-  view.loadURDF(xml, state.meshPackage || 'if_arm_lite');
-  view.onGizmoChange = scheduleIK;
-  view.setJoints(state.q);
+  log('info', `收到 URDF（${xml.length} 字节），开始加载网格`);
+  try {
+    view.loadURDF(xml, state.meshPackage || 'if_arm_lite');
+    view.onGizmoChange = scheduleIK;
+    view.setJoints(state.q);
+    setHint('');
+  } catch (err) {
+    showFatal('加载 URDF 失败: ' + err.message);
+  }
 }
 
 function initTables() {
@@ -161,7 +211,11 @@ function initTables() {
     tbody.appendChild(tr);
   });
   if (!plot) {
-    plot = new JointPlot(el('plot'), state.jointNames);
+    try {
+      plot = new JointPlot(el('plot'), state.jointNames);
+    } catch (err) {
+      showFatal('波形初始化失败: ' + err.message);
+    }
   }
 }
 

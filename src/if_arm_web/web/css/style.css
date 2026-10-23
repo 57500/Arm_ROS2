@@ -134,3 +134,36 @@ td { font-variant-numeric: tabular-nums; }
 .log .error { color: var(--bad); }
 .log .warn { color: var(--warn); }
 .log .info { color: var(--text); }
+
+/* 3D 视口上的提示 */
+.hint-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 2;
+}
+.hint-overlay.hidden { display: none; }
+
+.fatal {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  display: none;
+  background: rgba(248, 81, 73, .12);
+  border: 1px solid rgba(248, 81, 73, .5);
+  color: #ffb4ad;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  z-index: 3;
+}
+.fatal.show { display: block; }
+

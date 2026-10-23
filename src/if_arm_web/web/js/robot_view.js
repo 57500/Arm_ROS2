@@ -17,10 +17,10 @@ export class RobotView {
     this.ee = null;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x14171c);
+    this.scene.background = new THREE.Color(0x1b2129);
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.01, 50);
-    this.camera.position.set(0.9, -0.9, 0.75);
+    this.camera.position.set(1.05, -1.05, 0.85);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -38,7 +38,7 @@ export class RobotView {
     dir.position.set(1.2, 1.5, 1.8);
     this.scene.add(dir);
 
-    const grid = new THREE.GridHelper(2, 20, 0x3a424e, 0x242a33);
+    const grid = new THREE.GridHelper(2, 20, 0x5a667a, 0x333c48);
     grid.position.z = 0;
     grid.rotation.x = Math.PI / 2;   // URDF 是 Z 向上，网格放到 XY 平面
     this.scene.add(grid);
@@ -82,7 +82,7 @@ export class RobotView {
     const h = this.container.clientHeight || 1;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize(w, h);   // 同时更新 CSS 尺寸，避免高 DPI 下画面被放大裁切
   }
 
   loadURDF(xml, meshPackage) {
