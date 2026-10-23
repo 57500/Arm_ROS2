@@ -3,13 +3,24 @@
 
 export const COLORS = ['#4da3ff', '#3fb950', '#d29922', '#f85149', '#a371f7', '#39c5cf'];
 
+// 每个关节一个基准色相，6 个信号在同色相下错开亮度/饱和度，
+// 36 条曲线都是实线且颜色互不相同，同时还能按"色系"认出是同一关节。
+const JOINT_HUE = [205, 145, 45, 352, 275, 182];
+
+function colorFor(signalIndex, jointIndex) {
+  const hue = (JOINT_HUE[jointIndex % JOINT_HUE.length] + (signalIndex - 2) * 13 + 360) % 360;
+  const sat = 62 + (signalIndex % 3) * 12;
+  const light = 44 + signalIndex * 6;
+  return `hsl(${hue}, ${sat}%, ${light}%)`;
+}
+
 export const SIGNALS = [
-  { key: 'pos', label: '实际位置', unit: '°', width: 1.7, dash: null },
-  { key: 'vel', label: '实际速度', unit: '°/s', width: 1.2, dash: [6, 4] },
-  { key: 'ref', label: '期望位置', unit: '°', width: 1.2, dash: [2, 3] },
-  { key: 'ref_vel', label: '期望速度', unit: '°/s', width: 1.2, dash: [8, 3] },
-  { key: 'err', label: '位置误差', unit: '°', width: 1.0, dash: [10, 4] },
-  { key: 'err_vel', label: '速度误差', unit: '°/s', width: 1.0, dash: [3, 3] },
+  { key: 'pos', label: '实际位置', unit: '°', width: 1.7 },
+  { key: 'vel', label: '实际速度', unit: '°/s', width: 1.6 },
+  { key: 'ref', label: '期望位置', unit: '°', width: 1.6 },
+  { key: 'ref_vel', label: '期望速度', unit: '°/s', width: 1.6 },
+  { key: 'err', label: '位置误差', unit: '°', width: 1.5 },
+  { key: 'err_vel', label: '速度误差', unit: '°/s', width: 1.5 },
 ];
 
 const WINDOW_SEC = 30;
@@ -38,7 +49,7 @@ export class JointPlot {
 
   seriesList() {
     const out = [];
-    SIGNALS.forEach((sig) => {
+    SIGNALS.forEach((sig, si) => {
       if (!this.active[sig.key]) return;
       this.jointNames.forEach((name, i) => {
         if (!this.visible[i]) return;
@@ -47,9 +58,8 @@ export class JointPlot {
           unit: sig.unit,
           joint: i,
           label: `${name} ${sig.label}`,
-          stroke: COLORS[i % COLORS.length],
+          stroke: colorFor(si, i),
           width: sig.width,
-          dash: sig.dash || undefined,
           points: { show: false },
         });
       });

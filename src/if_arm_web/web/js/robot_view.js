@@ -131,23 +131,44 @@ export class RobotView {
     if (this.ghost) this.scene.remove(this.ghost);
 
     this.robot = loader.parse(xml, '');
+    this.robot.traverse((child) => {
+      if (!child.isMesh) return;
+      // 真实手臂必须是实体:若 URDF 材质带透明度,这里强制不透明
+      const solidify = (mat) => {
+        if (!mat.transparent && mat.opacity === 1) return mat;
+        const m = mat.clone();
+        m.transparent = false;
+        m.opacity = 1;
+        m.depthWrite = true;
+        m.needsUpdate = true;
+        return m;
+      };
+      child.material = Array.isArray(child.material)
+        ? child.material.map(solidify)
+        : solidify(child.material);
+      child.renderOrder = 0;
+    });
     this.scene.add(this.robot);
 
-    // 预览用的半透明副本
+    // 预览手臂:半透明蓝色幽灵
     this.ghost = loader.parse(xml, '');
     this.ghost.traverse((child) => {
       if (!child.isMesh) return;
       const paint = (mat) => {
         const m = mat.clone();
         m.transparent = true;
-        m.opacity = 0.35;
+        m.opacity = 0.28;
         m.depthWrite = false;
-        if (m.color) m.color.lerp(GHOST_COLOR, 0.75);
+        m.side = THREE.DoubleSide;
+        if (m.color) m.color.lerp(GHOST_COLOR, 0.7);
+        if (m.emissive) m.emissive.lerp(GHOST_COLOR, 0.35);
+        m.needsUpdate = true;
         return m;
       };
       child.material = Array.isArray(child.material)
         ? child.material.map(paint)
         : paint(child.material);
+      child.renderOrder = 10;
     });
     this.ghost.visible = false;
     this.scene.add(this.ghost);

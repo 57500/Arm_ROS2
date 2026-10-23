@@ -142,10 +142,8 @@ function handleMessage(msg) {
       state.refVel = msg.ref_vel || state.refVel;
       state.err = msg.err || state.err;
       state.errVel = msg.err_vel || state.errVel;
-      if (!state.previewQ) {
-        view.setTargetJoints(state.q);
-        syncSliders(state.q);
-      }
+      view.setTargetJoints(state.q);
+      if (!state.previewQ) syncSliders(state.q);
       if (state.executeQ && state.q.length) {
         const gap = Math.max(...state.executeQ.map((v, i) => Math.abs(v - (state.q[i] ?? v))));
         if (gap < 0.02) {

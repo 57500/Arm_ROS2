@@ -216,8 +216,14 @@ class Bridge(Node):
                               reliability=ReliabilityPolicy.RELIABLE)
         self.create_subscription(String, "/robot_description", self._on_urdf, desc_qos,
                                  callback_group=cbg)
+        # Jazzy 的 JTC 把 reference/feedback/error 发布在 <controller>/controller_state，
+        # 老版本发在 <controller>/state，两个都订，旧的没有发布者也无害。
+        controller_ns = f"/{self.controller_name}"
         self.create_subscription(JointTrajectoryControllerState,
-                                 "/manipulator_controller/state",
+                                 f"{controller_ns}/controller_state",
+                                 self._on_controller_state, 10, callback_group=cbg)
+        self.create_subscription(JointTrajectoryControllerState,
+                                 f"{controller_ns}/state",
                                  self._on_controller_state, 10, callback_group=cbg)
 
         self.ik_client = self.create_client(GetPositionIK, "/compute_ik", callback_group=cbg)
