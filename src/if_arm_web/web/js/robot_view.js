@@ -103,6 +103,7 @@ export class RobotView {
     this.renderer.setAnimationLoop(() => {
       this.orbit.update();
       this.updateSmoothing();
+      this.prepareMeshes();
       this.renderer.render(this.scene, this.camera);
     });
   }
@@ -131,47 +132,15 @@ export class RobotView {
     if (this.ghost) this.scene.remove(this.ghost);
 
     this.robot = loader.parse(xml, '');
-    this.robot.traverse((child) => {
-      if (!child.isMesh) return;
-      // 真实手臂必须是实体:若 URDF 材质带透明度,这里强制不透明
-      const solidify = (mat) => {
-        if (!mat.transparent && mat.opacity === 1) return mat;
-        const m = mat.clone();
-        m.transparent = false;
-        m.opacity = 1;
-        m.depthWrite = true;
-        m.needsUpdate = true;
-        return m;
-      };
-      child.material = Array.isArray(child.material)
-        ? child.material.map(solidify)
-        : solidify(child.material);
-      child.renderOrder = 0;
-    });
     this.scene.add(this.robot);
 
-    // 预览手臂:半透明蓝色幽灵
+    // 预览手臂:半透明蓝色幽灵。注意 URDF 的 STL 是异步加载的,
+    // 这里只能先建树,材质由 prepareMeshes() 在渲染循环里逐个补齐。
     this.ghost = loader.parse(xml, '');
-    this.ghost.traverse((child) => {
-      if (!child.isMesh) return;
-      const paint = (mat) => {
-        const m = mat.clone();
-        m.transparent = true;
-        m.opacity = 0.28;
-        m.depthWrite = false;
-        m.side = THREE.DoubleSide;
-        if (m.color) m.color.lerp(GHOST_COLOR, 0.7);
-        if (m.emissive) m.emissive.lerp(GHOST_COLOR, 0.35);
-        m.needsUpdate = true;
-        return m;
-      };
-      child.material = Array.isArray(child.material)
-        ? child.material.map(paint)
-        : paint(child.material);
-      child.renderOrder = 10;
-    });
     this.ghost.visible = false;
     this.scene.add(this.ghost);
+
+    this.prepareMeshes();
 
     this.ee = this.robot.getObjectByName(this.tipLink) || null;
     this.robot.updateMatrixWorld(true);
@@ -180,6 +149,51 @@ export class RobotView {
     this.gizmoMove.enabled = true;
     this.gizmoRotate.visible = true;
     this.gizmoRotate.enabled = true;
+  }
+
+  /** URDF 网格是异步加载的:每帧检查一次,给新出现的 mesh 上材质 */
+  prepareMeshes() {
+    if (this.robot) {
+      this.robot.traverse((child) => {
+        if (!child.isMesh || child.userData.__solid) return;
+        child.userData.__solid = true;
+        const solidify = (mat) => {
+          if (!mat.transparent && mat.opacity === 1) return mat;
+          const m = mat.clone();
+          m.transparent = false;
+          m.opacity = 1;
+          m.depthWrite = true;
+          m.needsUpdate = true;
+          return m;
+        };
+        child.material = Array.isArray(child.material)
+          ? child.material.map(solidify)
+          : solidify(child.material);
+        child.renderOrder = 0;
+      });
+    }
+
+    if (this.ghost) {
+      this.ghost.traverse((child) => {
+        if (!child.isMesh || child.userData.__ghost) return;
+        child.userData.__ghost = true;
+        const paint = (mat) => {
+          const m = mat.clone();
+          m.transparent = true;
+          m.opacity = 0.3;
+          m.depthWrite = false;
+          m.side = THREE.DoubleSide;
+          if (m.color) m.color.lerp(GHOST_COLOR, 0.75);
+          if (m.emissive) m.emissive.lerp(GHOST_COLOR, 0.35);
+          m.needsUpdate = true;
+          return m;
+        };
+        child.material = Array.isArray(child.material)
+          ? child.material.map(paint)
+          : paint(child.material);
+        child.renderOrder = 10;
+      });
+    }
   }
 
   applyJoints(robot, values) {
