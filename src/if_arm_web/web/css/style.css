@@ -60,10 +60,10 @@ html, body {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
-.plot-title { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
-#plot { flex: 1; min-height: 0; }
+#plot { flex: 1; min-height: 0; padding-bottom: 4px; }
 
 .panel {
   border-bottom: 1px solid var(--line);
@@ -199,11 +199,50 @@ button.primary:hover:not(:disabled) { background: rgba(77, 163, 255, .26); }
 /* 波形区 */
 .plot-head {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
   margin-bottom: 4px;
 }
-.plot-title { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.plot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 参数行：标签列固定宽度，滑块长度一致 */
+.kv {
+  display: grid;
+  grid-template-columns: 76px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.kv > span:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 波形悬停提示 */
+.plot-tip {
+  position: absolute;
+  display: none;
+  pointer-events: none;
+  background: rgba(20, 24, 30, .95);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  z-index: 5;
+}
+.plot-tip.show { display: block; }
+.plot-tip i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.plot-title { color: var(--muted); font-size: 12px; white-space: nowrap; margin: 0; min-width: 32px; }
 .plot-legend {
   display: flex;
   flex-wrap: wrap;
@@ -221,7 +260,7 @@ button.primary:hover:not(:disabled) { background: rgba(77, 163, 255, .26); }
   border-radius: 50%;
   margin-right: 4px;
 }
-.plot-tools { display: flex; gap: 4px; }
+.plot-tools { display: flex; gap: 4px; margin-left: auto; }
 .plot-tools button { padding: 2px 8px; font-size: 12px; }
 
 /* 右侧分页 */
@@ -285,7 +324,7 @@ pre.config {
 }
 .plot-legend span.on { opacity: 1; background: rgba(255, 255, 255, .06); }
 
-.sig-toggles { display: flex; gap: 10px; font-size: 11px; color: var(--muted); }
+.sig-toggles { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11px; color: var(--muted); flex: 1; }
 .sig-toggles label { display: flex; align-items: center; gap: 3px; cursor: pointer; }
 .sig-toggles input { width: 13px; height: 13px; }
 

@@ -14,12 +14,15 @@ const state = {
   q: [],
   dq: [],
   ref: [],
+  refVel: [],
   err: [],
+  errVel: [],
   urdfLoaded: false,
   previewQ: null,
   ikSeq: 0,
   lastIkApplied: 0,
   executing: false,
+  executeQ: null,
   meshPackage: 'if_arm_lite',
   avoidCollisions: true,
 };
@@ -58,6 +61,9 @@ try {
     jointNames: [],
     setJoints() {},
     setTargetJoints() {},
+    setPreview() {},
+    clearPreview() {},
+    snapToPreviewEE() {},
     setMode() {},
     snapToEE() {},
     resetView() {},
@@ -133,10 +139,19 @@ function handleMessage(msg) {
       state.q = msg.q || state.q;
       state.dq = msg.dq || state.dq;
       state.ref = msg.ref || state.ref;
+      state.refVel = msg.ref_vel || state.refVel;
       state.err = msg.err || state.err;
+      state.errVel = msg.err_vel || state.errVel;
       if (!state.previewQ) {
         view.setTargetJoints(state.q);
         syncSliders(state.q);
+      }
+      if (state.executeQ && state.q.length) {
+        const gap = Math.max(...state.executeQ.map((v, i) => Math.abs(v - (state.q[i] ?? v))));
+        if (gap < 0.02) {
+          state.executeQ = null;
+          view.snapToEE();
+        }
       }
       {
         const now = performance.now();
@@ -148,7 +163,12 @@ function handleMessage(msg) {
         if (plot && now - lastPlotAt > 50) {
           lastPlotAt = now;
           plot.push(msg.t || Date.now() / 1000, {
-            pos: state.q, vel: state.dq, ref: state.ref, err: state.err,
+            pos: state.q,
+            vel: state.dq,
+            ref: state.ref,
+            ref_vel: state.refVel,
+            err: state.err,
+            err_vel: state.errVel,
           });
         }
       }
@@ -163,7 +183,7 @@ function handleMessage(msg) {
       state.lastIkApplied = msg.seq;
       if (msg.ok) {
         state.previewQ = msg.q;
-        view.setJoints(msg.q);
+        view.setPreview(msg.q);
         el('btnExecute').disabled = state.executing;
         el('ikInfo').textContent = 'IK：成功';
         el('ikInfo').style.color = 'var(--ok)';
@@ -179,13 +199,15 @@ function handleMessage(msg) {
       log(msg.ok ? 'info' : 'error', msg.ok ? '执行完成' : `执行失败：${msg.error}`);
       if (msg.ok) {
         state.previewQ = null;
-        view.snapToEE();
+        view.clearPreview();
       }
       break;
 
     case 'estop':
       log('warn', `急停：${msg.detail}`);
       state.previewQ = null;
+      view.clearPreview();
+      view.snapToEE();
       break;
 
     case 'motor_config':
@@ -221,6 +243,7 @@ function loadURDF(xml) {
     view.loadURDF(xml, state.meshPackage);
     view.onGizmoChange = scheduleIK;
     view.setJoints(state.q);
+    view.snapToEE();
     applyJointLimits(xml);
     syncSliders(state.q);
     setHint('');
@@ -243,11 +266,13 @@ function initTables() {
 
   if (!plot) {
     try {
-      plot = new JointPlot(el('plot'), state.jointNames);
+      plot = new JointPlot(el('plot'), state.jointNames, el('plotTip'));
     } catch (err) {
       showFatal('波形初始化失败: ' + err.message);
     }
   }
+
+  loadUi();
 }
 
 function updateJointTable(q, dq) {
@@ -310,7 +335,8 @@ function buildSliders() {
       val.textContent = deg.toFixed(1);
       state.previewQ = (state.previewQ || state.q.slice()).slice();
       state.previewQ[i] = (deg * Math.PI) / 180;
-      view.setJoints(state.previewQ);
+      view.setPreview(state.previewQ);
+      view.snapToPreviewEE();
       el('btnExecute').disabled = state.executing;
       el('ikInfo').textContent = '滑块预览（点执行生效）';
       el('ikInfo').style.color = 'var(--accent)';
@@ -420,6 +446,88 @@ function bindSplitter() {
   });
 }
 
+// ---------------- 界面设置保存 ----------------
+const UI_KEY = 'if_arm_web_ui_v1';
+
+function collectUi() {
+  const rows = el('app').style.gridTemplateRows || '';
+  const match = rows.match(/(\d+)px\s*$/);
+  return {
+    vel: Number(el('velScale').value),
+    acc: Number(el('accScale').value),
+    signals: {
+      pos: el('sigPos').checked,
+      vel: el('sigVel').checked,
+      ref: el('sigRef').checked,
+      ref_vel: el('sigRefVel').checked,
+      err: el('sigErr').checked,
+      err_vel: el('sigErrVel').checked,
+    },
+    joints: plot ? plot.visible.slice() : [],
+    plotHeight: match ? Number(match[1]) : 220,
+  };
+}
+
+function applyUi(cfg) {
+  if (!cfg) return;
+
+  if (Number.isFinite(cfg.vel)) {
+    el('velScale').value = cfg.vel;
+    el('velScaleVal').textContent = Number(cfg.vel).toFixed(2);
+  }
+  if (Number.isFinite(cfg.acc)) {
+    el('accScale').value = cfg.acc;
+    el('accScaleVal').textContent = Number(cfg.acc).toFixed(2);
+  }
+
+  if (cfg.signals && plot) {
+    const map = {
+      pos: 'sigPos', vel: 'sigVel', ref: 'sigRef',
+      ref_vel: 'sigRefVel', err: 'sigErr', err_vel: 'sigErrVel',
+    };
+    Object.keys(map).forEach((key) => {
+      const cb = el(map[key]);
+      if (!cb) return;
+      cb.checked = Boolean(cfg.signals[key]);
+      plot.setSignal(key, cb.checked);
+    });
+  }
+
+  if (plot && Array.isArray(cfg.joints)) {
+    cfg.joints.forEach((on, i) => {
+      if (plot.visible[i] !== on) plot.toggleJoint(i);
+      const chip = el('jointToggles').children[i];
+      if (chip) chip.classList.toggle('on', on);
+    });
+  }
+
+  if (Number.isFinite(cfg.plotHeight)) {
+    el('app').style.gridTemplateRows = `1fr 6px ${cfg.plotHeight}px`;
+    if (plot) plot.resize();
+  }
+}
+
+function loadUi() {
+  try {
+    const raw = localStorage.getItem(UI_KEY);
+    if (raw) {
+      applyUi(JSON.parse(raw));
+      log('info', '已恢复上次保存的界面设置');
+    }
+  } catch (err) {
+    log('warn', '读取保存的设置失败: ' + err.message);
+  }
+}
+
+function saveUi() {
+  try {
+    localStorage.setItem(UI_KEY, JSON.stringify(collectUi()));
+    log('info', '界面设置已保存，下次打开自动恢复');
+  } catch (err) {
+    log('error', '保存失败: ' + err.message);
+  }
+}
+
 // ---------------- IK 节流（只保留最新一次） ----------------
 let ikTimer = null;
 
@@ -484,18 +592,6 @@ function bindUI() {
   bindSplitter();
   bindDebug();
 
-  el('modeTranslate').onclick = () => {
-    view.setMode('translate');
-    el('modeTranslate').classList.add('active');
-    el('modeRotate').classList.remove('active');
-  };
-
-  el('modeRotate').onclick = () => {
-    view.setMode('rotate');
-    el('modeRotate').classList.add('active');
-    el('modeTranslate').classList.remove('active');
-  };
-
   el('ikCollision').onchange = () => {
     state.avoidCollisions = el('ikCollision').checked;
     const badge = el('ikMode');
@@ -507,12 +603,13 @@ function bindUI() {
   el('btnSnap').onclick = () => {
     view.snapToEE();
     state.previewQ = null;
+    view.clearPreview();
     el('btnExecute').disabled = true;
   };
 
   el('btnCancelPreview').onclick = () => {
     state.previewQ = null;
-    view.setJoints(state.q);
+    view.clearPreview();
     view.snapToEE();
     el('btnExecute').disabled = true;
     el('ikInfo').textContent = 'IK：—';
@@ -521,9 +618,17 @@ function bindUI() {
 
   el('btnView').onclick = () => view.resetView();
 
+  el('btnSaveUi').onclick = saveUi;
+  el('btnResetUi').onclick = () => {
+    localStorage.removeItem(UI_KEY);
+    log('info', '已清除保存的设置，正在刷新…');
+    setTimeout(() => location.reload(), 300);
+  };
+
   el('btnSyncSliders').onclick = () => {
     state.previewQ = null;
-    view.setJoints(state.q);
+    view.clearPreview();
+    view.snapToEE();
     syncSliders(state.q);
     el('btnExecute').disabled = true;
     el('ikInfo').textContent = 'IK：—';
@@ -541,6 +646,7 @@ function bindUI() {
       return;
     }
     state.executing = true;
+    state.executeQ = state.previewQ.slice();
     el('btnExecute').disabled = true;
     send({
       type: 'execute',
@@ -552,6 +658,7 @@ function bindUI() {
 
   el('btnHome').onclick = () => {
     state.executing = true;
+    state.executeQ = state.jointNames.map(() => 0);
     send({
       type: 'execute',
       q: state.jointNames.map(() => 0),
@@ -565,7 +672,7 @@ function bindUI() {
     send({ type: 'estop' });
   };
 
-  // 波形：四个信号可任意组合
+  // 波形：六个信号可任意组合
   const sigBind = (id, key) => {
     const cb = el(id);
     if (!cb) return;
@@ -574,7 +681,9 @@ function bindUI() {
   sigBind('sigPos', 'pos');
   sigBind('sigVel', 'vel');
   sigBind('sigRef', 'ref');
+  sigBind('sigRefVel', 'ref_vel');
   sigBind('sigErr', 'err');
+  sigBind('sigErrVel', 'err_vel');
   el('plotZoomInY').onclick = () => plot && plot.zoomY(1 / 1.3);
   el('plotZoomOutY').onclick = () => plot && plot.zoomY(1.3);
   el('plotReset').onclick = () => plot && plot.resetAxes();

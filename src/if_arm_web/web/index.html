@@ -68,14 +68,11 @@
     <section id="tab-motion" class="pane">
       <div class="panel">
         <h2>拖拽</h2>
-        <div class="row">
-          <button id="modeTranslate" class="tab active">平移</button>
-          <button id="modeRotate" class="tab">旋转</button>
-        </div>
+        <div class="hint">白色是真实臂（跟随 /joint_states），蓝色半透明是预览臂；末端同时有平移手柄和旋转圆环，可直接拖任一轴</div>
         <label class="row"><span>IK 自碰撞检测</span><input id="ikCollision" type="checkbox" checked /></label>
         <div class="row">
           <button id="btnSnap">对准当前末端</button>
-          <button id="btnCancelPreview">取消预览</button>
+          <button id="btnCancelPreview">清除预览</button>
         </div>
         <div class="row"><button id="btnView">重置视角（正视 base_link）</button></div>
         <div id="ikInfo" class="hint">IK：—</div>
@@ -83,8 +80,12 @@
 
       <div class="panel">
         <h2>执行</h2>
-        <label class="row">速度缩放 <input id="velScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="velScaleVal">0.20</span></label>
-        <label class="row">加速度缩放 <input id="accScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="accScaleVal">0.20</span></label>
+        <div class="kv"><span>速度缩放</span><input id="velScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="velScaleVal">0.20</span></div>
+        <div class="kv"><span>加速度缩放</span><input id="accScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="accScaleVal">0.20</span></div>
+        <div class="row">
+          <button id="btnSaveUi">保存设置</button>
+          <button id="btnResetUi">恢复默认</button>
+        </div>
         <button id="btnExecute" class="primary" disabled>执行预览位姿</button>
         <div class="row"><button id="btnHome">回零</button></div>
         <button id="btnEstop" class="danger">急停</button>
@@ -134,20 +135,29 @@
 
   <footer id="plotArea">
     <div class="plot-head">
-      <span class="sig-toggles">
-        <label><input type="checkbox" id="sigPos" checked />位置</label>
-        <label><input type="checkbox" id="sigVel" />速度</label>
-        <label><input type="checkbox" id="sigRef" />参考</label>
-        <label><input type="checkbox" id="sigErr" />误差</label>
-      </span>
-      <span id="jointToggles" class="plot-legend"></span>
-      <span class="plot-tools">
-        <button id="plotZoomInY" title="Y 轴放大">Y＋</button>
-        <button id="plotZoomOutY" title="Y 轴缩小">Y－</button>
-        <button id="plotReset" title="重置坐标轴">重置</button>
-      </span>
+      <div class="plot-row">
+        <span class="plot-title">信号</span>
+        <span class="sig-toggles">
+          <label><input type="checkbox" id="sigPos" checked />实际位置</label>
+          <label><input type="checkbox" id="sigVel" checked />实际速度</label>
+          <label><input type="checkbox" id="sigRef" />期望位置</label>
+          <label><input type="checkbox" id="sigRefVel" />期望速度</label>
+          <label><input type="checkbox" id="sigErr" />位置误差</label>
+          <label><input type="checkbox" id="sigErrVel" />速度误差</label>
+        </span>
+        <span class="plot-tools">
+          <button id="plotZoomInY" title="Y 轴放大">Y＋</button>
+          <button id="plotZoomOutY" title="Y 轴缩小">Y－</button>
+          <button id="plotReset" title="重置坐标轴">重置</button>
+        </span>
+      </div>
+      <div class="plot-row">
+        <span class="plot-title">关节</span>
+        <span id="jointToggles" class="plot-legend"></span>
+      </div>
     </div>
     <div id="plot"></div>
+    <div id="plotTip" class="plot-tip"></div>
   </footer>
 </div>
 

@@ -197,7 +197,9 @@ class Bridge(Node):
         self.q = [0.0] * len(self.joint_names)
         self.dq = [0.0] * len(self.joint_names)
         self.ref = [0.0] * len(self.joint_names)
+        self.ref_vel = [0.0] * len(self.joint_names)
         self.err = [0.0] * len(self.joint_names)
+        self.err_vel = [0.0] * len(self.joint_names)
         self.stamp = 0.0
         self.urdf = ""
         self.urdf_received = False
@@ -254,22 +256,33 @@ class Bridge(Node):
         # 不再依赖定时器（定时器会被事件循环的抖动拖慢）。
         if self.loop is not None and self.state_slots:
             payload = {"type": "state", "q": list(self.q), "dq": list(self.dq),
-                       "ref": list(self.ref), "err": list(self.err),
+                       "ref": list(self.ref), "ref_vel": list(self.ref_vel),
+                       "err": list(self.err), "err_vel": list(self.err_vel),
                        "jtc": self.jtc_seen, "t": self.stamp}
             self.loop.call_soon_threadsafe(self.publish_state, payload)
 
     def _on_controller_state(self, msg: JointTrajectoryControllerState):
         """JTC 的参考位置和跟踪误差，用来画参考/误差波形。"""
         ref = list(self.ref)
+        ref_vel = list(self.ref_vel)
         err = list(self.err)
+        err_vel = list(self.err_vel)
         for name, value in zip(msg.joint_names, msg.reference.positions):
             if name in self.joint_names:
                 ref[self.joint_names.index(name)] = float(value)
+        for name, value in zip(msg.joint_names, msg.reference.velocities):
+            if name in self.joint_names:
+                ref_vel[self.joint_names.index(name)] = float(value)
         for name, value in zip(msg.joint_names, msg.error.positions):
             if name in self.joint_names:
                 err[self.joint_names.index(name)] = float(value)
+        for name, value in zip(msg.joint_names, msg.error.velocities):
+            if name in self.joint_names:
+                err_vel[self.joint_names.index(name)] = float(value)
         self.ref = ref
+        self.ref_vel = ref_vel
         self.err = err
+        self.err_vel = err_vel
         self.jtc_seen = True
 
     def _on_urdf(self, msg: String):
