@@ -1,3 +1,11 @@
+# ============================================================================
+# 速度/加速度上限的唯一来源。
+# 改这里的 max_velocity / max_acceleration 就是改整机速度上限:
+#   - MoveIt 规划直接读本文件
+#   - 硬件的 <param name="max_joint_vel"> 也由 xacro 读本文件得到（见
+#     if_arm_lite.ros2_control.xacro），所以两边不会不一致
+# 换算：60 deg/s = 1.0472，100 deg/s = 1.7453，120 deg/s = 2.0944
+# ============================================================================
 # joint_limits.yaml allows the dynamics properties specified in the URDF to be overwritten or augmented as needed
 
 # For beginners, we downscale velocity and acceleration limits.
@@ -11,31 +19,31 @@ default_acceleration_scaling_factor: 1.0
 joint_limits:
   joint1:
     has_velocity_limits: true
-    max_velocity: 1.0472
+    max_velocity: 1.7453
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 3.0
   joint2:
     has_velocity_limits: true
-    max_velocity: 1.0472
+    max_velocity: 1.7453
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 3.0
   joint3:
     has_velocity_limits: true
-    max_velocity: 1.0472
+    max_velocity: 1.7453
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 3.0
   joint4:
     has_velocity_limits: true
-    max_velocity: 1.0472
+    max_velocity: 1.7453
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 3.0
   joint5:
     has_velocity_limits: true
-    max_velocity: 1.0472
+    max_velocity: 1.7453
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 3.0
   joint6:
     has_velocity_limits: true
-    max_velocity: 1.0472
+    max_velocity: 1.7453
     has_acceleration_limits: true
-    max_acceleration: 2.0
+    max_acceleration: 3.0

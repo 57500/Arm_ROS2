@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
     <xacro:macro name="if_arm_lite_ros2_control" params="name initial_positions_file">
         <xacro:property name="initial_positions" value="${xacro.load_yaml(initial_positions_file)['initial_positions']}"/>
 
@@ -14,6 +15,10 @@
                 <param name="max_motor_rpm">1000</param>
                 <!-- 电机侧速度斜率，单位 RPM/s（电机轴），X 固件范围 1~65535；取上限 = 基本不额外限制加速度 -->
                 <param name="default_acc">65535</param>
+                <!-- 关节限速（rad/s），硬件的最后一道钳位。
+                     必须 >= config/joint_limits.yaml 里的 max_velocity，否则会把 MoveIt
+                     规划好的速度在这里砍掉。1.7453 = 100 deg/s，改速度时两处要一起改。 -->
+                <param name="max_joint_vel">1.7453</param>
             </hardware>
             <joint name="joint1">
                 <command_interface name="velocity"/>

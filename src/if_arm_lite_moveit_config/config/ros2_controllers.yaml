@@ -2,8 +2,10 @@
 controller_manager:
   ros__parameters:
     update_rate: 100  # Hz
-    enforce_command_limits: true   # 按 URDF 的 <limit velocity> 裁剪控制器输出（10 deg/s）
-    enforce_command_limits: true
+    # 必须 false：URDF 是 SolidWorks 导出的固定值（1.0472 rad/s），
+    # 开着会把 joint_limits.yaml 里 100 deg/s 的设置静默压回 60 deg/s。
+    # 速度上限由 MoveIt（joint_limits.yaml）+ 硬件（max_joint_vel）保证。
+    enforce_command_limits: false
 
     manipulator_controller:
       type: joint_trajectory_controller/JointTrajectoryController

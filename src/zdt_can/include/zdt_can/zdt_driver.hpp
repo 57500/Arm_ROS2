@@ -59,6 +59,10 @@ public:
   // 请求一次位置。应答之后由 poll_positions() 取出
   CanResult request_position(uint8_t addr);
 
+  // 定时上报位置：period_ms = 0 停止；>0 表示每 period_ms 毫秒自动上报一次。
+  // 开了之后就不需要每拍 request_position() 了。
+  CanResult set_position_report(uint8_t addr, uint16_t period_ms);
+
   // ---- 反馈 --------------------------------------------------------------
   // 非阻塞：把当前已到达的帧读完（最多 max_frames 帧），拼包、校验、解码，
   // 只返回位置反馈。其他应答（使能回执等）在这里被丢弃。
@@ -69,8 +73,10 @@ public:
   int     last_errno() const { return last_errno_; }   // 最近一次发送失败的 errno
 
   // ---- 常量 --------------------------------------------------------------
-  static constexpr double kHardMaxRpm  = 3000.0;   // 固件速度上限，写死，不可配置
-  static constexpr double kDeadbandRpm = 1.0;      // 死区
+  static constexpr double   kHardMaxRpm  = 3000.0;   // 固件速度上限，写死，不可配置
+  static constexpr double   kDeadbandRpm = 1.0;      // 死区
+  static constexpr uint16_t kAccMin      = 1;        // 加速度档位下限：0 会被电机拒绝
+  static constexpr uint16_t kAccMax      = 65535;    // 加速度档位是协议里的 2 字节
 
 private:
   CanResult send_payload(uint8_t addr, const std::vector<uint8_t> & payload);

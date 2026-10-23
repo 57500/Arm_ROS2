@@ -32,12 +32,21 @@ CanResult ZdtDriver::set_speed(uint8_t addr, double rpm, uint16_t acc)
   }
 
   const uint16_t speed_val = static_cast<uint16_t>(val + 0.5);   // 四舍五入
-  return send_payload(addr, encode_speed(dir, acc, speed_val));
+
+  // 加速度档位的合法范围是协议细节，统一在这里夹住，调用方不用关心
+  const uint16_t acc_val = std::clamp<uint16_t>(acc, kAccMin, kAccMax);
+  return send_payload(addr, encode_speed(dir, acc_val, speed_val));
 }
 
 CanResult ZdtDriver::request_position(uint8_t addr)
 {
   return send_payload(addr, encode_read_pos());
+}
+
+CanResult ZdtDriver::set_position_report(uint8_t addr, uint16_t period_ms)
+{
+  // 11 18 36 <period 2B> 6B；period = 0 表示停止上报
+  return send_payload(addr, encode_auto_report(kFuncReadPos, period_ms));
 }
 
 std::vector<PositionReply> ZdtDriver::poll_positions(int max_frames)
