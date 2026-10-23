@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>机械臂上位机</title>
+  <link rel="stylesheet" href="vendor/uPlot.min.css" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="vendor/uPlot.iife.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/": "./vendor/addons/"
+      }
+    }
+  </script>
+</head>
+<body>
+<div id="app">
+  <main id="viewport"></main>
+
+  <aside id="side">
+    <section class="panel">
+      <h2>状态</h2>
+      <div class="row"><span>连接</span><span id="conn" class="badge bad">未连接</span></div>
+      <div id="controllers" class="list"></div>
+      <div id="hardware" class="list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>关节</h2>
+      <table id="jointTable">
+        <thead><tr><th>关节</th><th>位置(°)</th><th>速度(°/s)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>拖拽</h2>
+      <div class="row">
+        <button id="modeTranslate" class="tab active">平移</button>
+        <button id="modeRotate" class="tab">旋转</button>
+      </div>
+      <div class="row hint">拖动模型末端的坐标轴/圆环，机器人按 MoveIt IK 跟随</div>
+      <div class="row">
+        <button id="btnSnap">对准当前末端</button>
+        <button id="btnCancelPreview">取消预览</button>
+      </div>
+      <div id="ikInfo" class="hint">IK：—</div>
+    </section>
+
+    <section class="panel">
+      <h2>执行</h2>
+      <label class="row">速度缩放 <input id="velScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="velScaleVal">0.20</span></label>
+      <label class="row">加速度缩放 <input id="accScale" type="range" min="0.05" max="1" step="0.05" value="0.2" /><span id="accScaleVal">0.20</span></label>
+      <div class="row">
+        <button id="btnExecute" disabled>执行预览位姿</button>
+        <button id="btnHome">回零</button>
+      </div>
+      <button id="btnEstop" class="danger">急停</button>
+    </section>
+
+    <section class="panel grow">
+      <h2>日志</h2>
+      <div id="log" class="log"></div>
+    </section>
+  </aside>
+
+  <footer id="plotArea">
+    <div class="plot-title">关节位置（°/最近 30 秒）</div>
+    <div id="plot"></div>
+  </footer>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
