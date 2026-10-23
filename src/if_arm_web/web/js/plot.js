@@ -83,7 +83,7 @@ export class JointPlot {
     }
     if (used.has('y2')) {
       axes.push({
-        scale: 'y2', side: 1, size: 64, label: '速度 (°/s)', labelSize: 18,
+        scale: 'y2', side: 3, size: 64, label: '速度 (°/s)', labelSize: 18,
         stroke: '#7d8b9e', grid: { show: false }, ticks: { stroke: '#2b323c' },
       });
     }
