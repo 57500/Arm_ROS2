@@ -202,6 +202,7 @@ class Bridge(Node):
         self.urdf = ""
         self.urdf_received = False
         self.status = {"controllers": [], "hardware": []}
+        self.jtc_seen = False
         self.component_name = "FakeSystem"
         self.move_goal_handle = None
 
@@ -254,7 +255,7 @@ class Bridge(Node):
         if self.loop is not None and self.state_slots:
             payload = {"type": "state", "q": list(self.q), "dq": list(self.dq),
                        "ref": list(self.ref), "err": list(self.err),
-                       "t": self.stamp}
+                       "jtc": self.jtc_seen, "t": self.stamp}
             self.loop.call_soon_threadsafe(self.publish_state, payload)
 
     def _on_controller_state(self, msg: JointTrajectoryControllerState):
@@ -269,7 +270,7 @@ class Bridge(Node):
                 err[self.joint_names.index(name)] = float(value)
         self.ref = ref
         self.err = err
-        self.publish_state_source = True
+        self.jtc_seen = True
 
     def _on_urdf(self, msg: String):
         self.urdf = msg.data

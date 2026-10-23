@@ -3,16 +3,23 @@
 #
 # 用法：
 #   ./start_hmi.sh              # 正常启动
-#   ./start_hmi.sh --no-rviz    # 不打开 RViz（只开本体 + 上位机）
+#   ./start_hmi.sh --no-rviz    # 不打开 RViz
+#   ./start_hmi.sh --force      # 先清掉已存在的控制器/move_group 再启动
 #
-# Ctrl+C 会同时停掉两个 launch。
+# Ctrl+C 会依次发送 INT/TERM/KILL，确保两个 launch 和它们拉起的节点都退出。
 
 # 注意：不能用 set -u —— ROS 的 setup.bash 会引用未定义的 AMENT_TRACE_SETUP_FILES
 set +u
 
 WS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NO_RVIZ=0
-[ "${1:-}" = "--no-rviz" ] && NO_RVIZ=1
+FORCE=0
+for arg in "$@"; do
+  case "${arg}" in
+    --no-rviz) NO_RVIZ=1 ;;
+    --force)   FORCE=1 ;;
+  esac
+done
 
 set +u
 source /opt/ros/jazzy/setup.bash
@@ -23,15 +30,64 @@ else
   exit 1
 fi
 
-DEMO_PID=""
+# ---- 启动前检查：避免重复启动导致 "more than one action server" ----
+EXISTING="$(pgrep -f 'ros2_control_node|moveit_ros_move_group' | tr '\n' ' ')"
+if [ -n "${EXISTING}" ]; then
+  if [ "${FORCE}" = "1" ]; then
+    echo "检测到已有节点（${EXISTING}），--force：先停掉它们…"
+    pkill -INT -f 'ros2_control_node' 2>/dev/null
+    pkill -INT -f 'moveit_ros_move_group' 2>/dev/null
+    pkill -INT -f 'demo.launch.py' 2>/dev/null
+    sleep 3
+    pkill -9 -f 'ros2_control_node' 2>/dev/null
+    pkill -9 -f 'moveit_ros_move_group' 2>/dev/null
+    sleep 1
+  else
+    echo "已经有节点在运行：${EXISTING}" >&2
+    echo "  - 先 Ctrl+C 停掉旧的 launch，或者" >&2
+    echo "  - 用 ./start_hmi.sh --force 让脚本先清理" >&2
+    exit 1
+  fi
+fi
+
 WEB_PID=""
+DEMO_PID=""
+
+# 停一个进程：INT -> 等 5 秒 -> TERM -> 等 2 秒 -> KILL
+stop_pid() {
+  local pid="$1"
+  [ -z "${pid}" ] && return
+  kill -0 "${pid}" 2>/dev/null || return
+  kill -INT "${pid}" 2>/dev/null
+  for _ in $(seq 1 20); do
+    kill -0 "${pid}" 2>/dev/null || return
+    sleep 0.25
+  done
+  kill -TERM "${pid}" 2>/dev/null
+  for _ in $(seq 1 8); do
+    kill -0 "${pid}" 2>/dev/null || return
+    sleep 0.25
+  done
+  kill -KILL "${pid}" 2>/dev/null
+}
 
 cleanup() {
   echo ""
   echo "正在停止…"
-  if [ -n "${WEB_PID}" ]; then kill -INT "${WEB_PID}" 2>/dev/null; fi
-  if [ -n "${DEMO_PID}" ]; then kill -INT "${DEMO_PID}" 2>/dev/null; fi
-  wait 2>/dev/null || true
+  stop_pid "${WEB_PID}"
+  stop_pid "${DEMO_PID}"
+
+  # 兜底：清理 launch 没带走的子进程
+  pkill -INT -f 'if_arm_web/lib/if_arm_web/bridge.py' 2>/dev/null
+  pkill -INT -f 'ros2_control_node' 2>/dev/null
+  pkill -INT -f 'moveit_ros_move_group' 2>/dev/null
+  pkill -INT -f 'rviz2' 2>/dev/null
+  sleep 2
+  pkill -9 -f 'if_arm_web/lib/if_arm_web/bridge.py' 2>/dev/null
+  pkill -9 -f 'ros2_control_node' 2>/dev/null
+  pkill -9 -f 'moveit_ros_move_group' 2>/dev/null
+  pkill -9 -f 'rviz2' 2>/dev/null
+  echo "已停止"
   exit 0
 }
 trap cleanup INT TERM
@@ -51,6 +107,7 @@ for _ in $(seq 1 60); do
     READY=1
     break
   fi
+  kill -0 "${DEMO_PID}" 2>/dev/null || break
   sleep 0.5
 done
 if [ "${READY}" = "0" ]; then
@@ -68,4 +125,6 @@ echo "  停止:        Ctrl+C"
 echo "=============================================="
 echo ""
 
-wait "${WEB_PID}"
+# 任意一个退出就整体收尾
+wait -n
+cleanup

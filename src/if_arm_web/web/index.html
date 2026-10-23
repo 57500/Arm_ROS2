@@ -134,12 +134,12 @@
 
   <footer id="plotArea">
     <div class="plot-head">
-      <select id="plotSignal" title="选择波形">
-        <option value="pos">位置</option>
-        <option value="vel">速度</option>
-        <option value="ref">参考位置</option>
-        <option value="err">误差</option>
-      </select>
+      <span class="sig-toggles">
+        <label><input type="checkbox" id="sigPos" checked />位置</label>
+        <label><input type="checkbox" id="sigVel" />速度</label>
+        <label><input type="checkbox" id="sigRef" />参考</label>
+        <label><input type="checkbox" id="sigErr" />误差</label>
+      </span>
       <span id="jointToggles" class="plot-legend"></span>
       <span class="plot-tools">
         <button id="plotZoomInY" title="Y 轴放大">Y＋</button>

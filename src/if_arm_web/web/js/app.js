@@ -126,6 +126,10 @@ function handleMessage(msg) {
       break;
 
     case 'state':
+      if (msg.jtc === false && !state.jtcWarned) {
+        state.jtcWarned = true;
+        log('warn', '未收到 /manipulator_controller/state，参考/误差暂时为 0');
+      }
       state.q = msg.q || state.q;
       state.dq = msg.dq || state.dq;
       state.ref = msg.ref || state.ref;
@@ -547,7 +551,6 @@ function bindUI() {
   };
 
   el('btnHome').onclick = () => {
-    if (!confirm('确认回到全零位姿？')) return;
     state.executing = true;
     send({
       type: 'execute',
@@ -562,10 +565,16 @@ function bindUI() {
     send({ type: 'estop' });
   };
 
-  // 波形
-  el('plotSignal').onchange = () => {
-    if (plot) plot.setSignal(el('plotSignal').value);
+  // 波形：四个信号可任意组合
+  const sigBind = (id, key) => {
+    const cb = el(id);
+    if (!cb) return;
+    cb.onchange = () => { if (plot) plot.setSignal(key, cb.checked); };
   };
+  sigBind('sigPos', 'pos');
+  sigBind('sigVel', 'vel');
+  sigBind('sigRef', 'ref');
+  sigBind('sigErr', 'err');
   el('plotZoomInY').onclick = () => plot && plot.zoomY(1 / 1.3);
   el('plotZoomOutY').onclick = () => plot && plot.zoomY(1.3);
   el('plotReset').onclick = () => plot && plot.resetAxes();
