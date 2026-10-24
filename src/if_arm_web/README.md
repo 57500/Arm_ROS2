@@ -3,6 +3,9 @@
 在浏览器里看 3D 模型、拖末端、看波形、急停。**不直接给电机发指令**，所有运动都走
 MoveIt 和 ros2_control 控制器。
 
+sudo ip link set can0 type can bitrate 500000
+sudo ip link set can0 up
+
 ## 启动
 
 **方式一（一键）**：仓库根目录
